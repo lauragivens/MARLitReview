@@ -1,0 +1,179 @@
+---
+title: "Author Countries"
+author: "Laura Givens"
+date: "2025-05-20"
+output: html_document
+---
+```{r}
+library(readxl)
+library(readr)
+library(stringr)
+```
+
+Get list of addresses from file (made by copy/pasting the column from the lit review spreadsheet 20-5-2025)  
+```{r}
+countries <- read_tsv("/Users/lauragivens/Downloads/mar_litreview_addresses.tsv")
+```
+There is one line per paper; each line is made up of a list of all coauthor institutions 
+```{r}
+head(countries)
+```
+
+Split each line at the semicolon, which makes a nested list. The countries2 list has 454 elements, which corresponds to the 454 papers. Each of those elements has one sub-element per address.    
+* List  
+  - Paper 1  
+      > address 1  
+      > address 2  
+      > address 3  
+  - Paper 2  
+      > address 1  
+      > address 2  
+```{r}
+countries2 <- str_split(countries$addresses,";") 
+head(countries2)
+```
+To grab the country of each author, we then select everything after the last comma ","   
+```{r}
+authors <- lapply(countries2,function(x) {word(x,start=-1,sep=",")})
+head(authors)
+```
+
+To get the country of each first author, we take the first sub-element of every element in the list.  
+```{r}
+firstauth <- lapply(authors,function(x) x[[1]])
+head(firstauth)
+```
+
+To get the countries of all other authors, we remove the first sub-element of every element in the list.  
+```{r}
+coauth <- lapply(authors,function(x) x[-1])
+head(coauth)
+```
+
+However, we also have a few addresses that were added to the spreadsheet in a different way. These look to be split by institution.  
+
+# Address unusual author address  
+```{r}
+countries[364:454,] %>% head()
+```
+
+We use regex to skip everything inside the square brackets, then split each line into addresses by semicolon like we did above.  
+```{r}
+countries3 <- strsplit(countries[364:454,]$addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T)
+head(countries3)
+```
+Then we can grab everything after the last comma to get author country.  
+```{r}
+authors2 <- lapply(countries3,function(x) {word(x,start=-1,sep=",")})
+head(authors2)
+```
+
+```{r}
+firstauth2 <- lapply(authors2,function(x) x[[1]])
+head(firstauth2)
+```
+
+```{r}
+coauth2 <- lapply(authors2,function(x) x[-1])
+head(coauth2)
+```
+
+# Combine and clean up    
+```{r}
+length(authors) #check length of author list
+authors[-c(364:454)] %>% length() #check length of author list minus the ones that had a different structure 
+length(authors2) #check length of our unusual author list
+#should equal the same amount  
+
+AuthorList <- c(authors[-c(364:454)],authors2)
+length(AuthorList) #double check that everything added together correctly 
+
+FirstAuthors <- c(firstauth[-c(364:454)],firstauth2)
+
+CoAuthors <- c(coauth[-c(364:454)],coauth2)
+```
+
+So now that we have our (basically) complete lists, we need to deal with the leading whitespaces and the different ways the USA is written  
+```{r}
+AuthorList <- lapply(AuthorList,function(x) {trimws(x,which="left")}) 
+FirstAuthors <- lapply(FirstAuthors,function(x) {trimws(x,which="left")}) 
+CoAuthors <- lapply(CoAuthors,function(x) {trimws(x,which="left")}) 
+
+head(AuthorList)
+head(FirstAuthors)
+head(CoAuthors)
+```
+
+```{r}
+AuthorListrep <- rapply(AuthorList, function(x) ifelse(grepl("US|States",x),"United States of America",x), how = "replace")
+FirstAuthorsrep <- rapply(FirstAuthors, function(x) ifelse(grepl("US|States",x),"United States of America",x), how = "replace")
+CoAuthorsrep <- rapply(CoAuthors, function(x) ifelse(grepl("US|States",x),"United States of America",x), how = "replace")
+```
+
+```{r}
+#can check that the replacement worked  
+#AuthorList
+#AuthorListrep
+
+#only issue I think is #406
+#[[406]]
+#[1] "FL 33149" "TX 77843"
+
+#check we'd only be replacing those values  
+grepl("FL|TX",AuthorListrep) %>% summary() 
+# TRUE=1
+grepl("FL|TX",FirstAuthorsrep) %>% summary() 
+grepl("FL|TX",CoAuthorsrep) %>% summary() 
+
+AuthorListreps <- rapply(AuthorListrep, function(x) ifelse(grepl("FL|TX",x),"United States of America",x), how = "replace")
+FirstAuthorsreps <- rapply(FirstAuthorsrep, function(x) ifelse(grepl("FL|TX",x),"United States of America",x), how = "replace")
+CoAuthorsreps <- rapply(CoAuthorsrep, function(x) ifelse(grepl("FL|TX",x),"United States of America",x), how = "replace")
+#AuthorListreps
+```
+
+
+# Address NA countries?   
+Ask why in meeting 
+```{r}
+firstauth[is.na(firstauth)] 
+```
+
+
+# Convert to df  
+```{r}
+AuthorListeven<-lapply(AuthorListreps, "length<-" , max(lengths(AuthorListreps)))
+head(AuthorListeven)
+
+AuthorList.df <- as.data.frame(do.call(rbind,AuthorListeven)) 
+head(AuthorList.df)
+```
+
+```{r}
+FirstAuthorseven<-lapply(FirstAuthorsreps, "length<-" , max(lengths(FirstAuthorsreps)))
+head(FirstAuthorseven)
+
+FirstAuthors.df <- as.data.frame(do.call(rbind,FirstAuthorseven)) 
+head(FirstAuthors.df)
+```
+
+```{r}
+CoAuthorseven<-lapply(CoAuthorsreps, "length<-" , max(lengths(CoAuthorsreps)))
+head(CoAuthorseven)
+
+CoAuthors.df <- as.data.frame(do.call(rbind,CoAuthorseven)) 
+head(CoAuthors.df)
+```
+
+
+# export final lists  
+```{r}
+write_csv(AuthorList.df,"MAR_litreview_authorcountries.csv")
+write_csv(FirstAuthors.df,"MAR_litreview_firstauthorcountries.csv")
+write_csv(CoAuthors.df,"MAR_litreview_coauthorcountries.csv")
+```
+
+```{r}
+save.image("/Users/lauragivens/Desktop/R/")
+sessionInfo()
+```
+
