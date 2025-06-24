@@ -11,12 +11,14 @@ library(stringr)
 library(ggplot2)
 library(ggridges)
 library(tidyverse)
+library(patchwork)
 ```
 
 Get list of addresses from file (made by copy/pasting the column from the lit review spreadsheet 20-5-2025)  
 ```{r}
 countries <- read_tsv("mar_litreview_addresses.tsv")
 newcountries <- read_tsv("mar_litreview_onlyrelevant.tsv")
+IsraelMergedDB <- read.csv("Merged and cleaned database for literature review.csv")
 ```
 How many papers?  
 ```{r}
@@ -314,93 +316,6 @@ firstauthcountries.df %>% filter(n>2) %>% ggplot(aes(x=year,y=first_authors,fill
 all.countries <- lapply((author.countries.df %>% 
   separate_wider_delim(.,cols=countries_all,delim=",",names_sep="_",too_few="align_start") %>% select(starts_with("countries"))),unique) %>% c() %>% unlist() %>% trimws(.,which="left") %>% unique()
 ```
-```{r}
-year.countries.df <- author.countries.df %>% 
-  separate_wider_delim(.,cols=countries_all,delim=",",names_sep="_",too_few="align_start") %>%
-  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% 
-  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
-pivot_longer(cols=c(starts_with("countries")),
-              #names_to="year",
-              values_drop_na=TRUE
-              ) %>% group_by(year,value) %>% 
-  summarize(countries_peryear = n()) %>%
-  ungroup() %>% mutate(value=trimws(value,which="left")) %>%
-  #group_by(value) %>%  
-  add_count(value,sort=TRUE) %>% #filter(n>1) %>%
-  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) 
-```
-
-```{r}
-  year.countries.df %>% ggplot(aes(x=year,y=value,height=countries_peryear,fill=value)) + 
-  #geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
-  geom_ridgeline(scale=1,linewidth=1,alpha=0.6) +
-  theme_ridges() + theme(legend.position="none")
-```
-Number of papers published from a country over time  
-```{r}
-year.countries.df %>% ggplot(aes(x=year,y=value)) + 
-  geom_point(aes(size=countries_peryear))
-```
-
-```{r}
-year.countries.df <- 
-  author.countries.df %>% 
-  separate_wider_delim(.,cols=countries_all,
-                       delim=",",names_sep="_",
-                       too_few="align_start") %>%
-  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% 
-  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
-pivot_longer(cols=c(starts_with("countries")),
-              #names_to="year",
-              values_drop_na=TRUE
-              ) %>% 
-  mutate(value=trimws(value,which="left")) %>%
-  group_by(year,value,name) %>% 
-  mutate(firstauth=case_when(name=="countries_all_1" ~ n(),
-                             .default=NA)) %>%
-  ungroup() %>%
-  group_by(year,value) %>% 
-  reframe(countries_peryear = n(),
-            firstauth=unique(firstauth)) %>% 
-  group_by(year,value) %>% 
-  filter(n()>1 & !is.na(firstauth) | n()==1) %>% ungroup() %>%
-  add_count(value,sort=TRUE) %>% 
-  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) 
-```
-```{r}
-year.countries.df %>% ggplot(aes(x=year,y=value,color=firstauth)) + 
-  geom_point(aes(size=countries_peryear),alpha=0.8) + scale_color_gradient(na.value="grey") + theme_bw() + theme(text=element_text(size=14)) + scale_size_continuous(range=c(3,10))
-
-ggsave("/Users/lauragivens/Downloads/roughdraft2.png",width=14,height=12)
-```
-
-```{r}
-year.countries.df <- 
-  author.countries.df %>% 
-  separate_wider_delim(.,cols=countries_all,
-                       delim=",",names_sep="_",
-                       too_few="align_start") %>%
-  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% 
-  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
-pivot_longer(cols=c(starts_with("countries")),
-              #names_to="year",
-              values_drop_na=TRUE
-              ) %>% 
-  mutate(value=trimws(value,which="left")) %>%
-  group_by(year,value,name) %>% 
-  mutate(firstauth=case_when(name=="countries_all_1" ~ n(),
-                             .default=NA)) %>%
-  ungroup() %>%
-  group_by(year,value) %>% 
-  reframe(countries_peryear = n(),
-            firstauth=unique(firstauth)) %>% 
-  group_by(year,value) %>% 
-  filter(n()>1 & !is.na(firstauth) | n()==1) %>% ungroup() %>% group_by(value) %>% 
-  mutate(total_percountry = sum(countries_peryear,na.rm=TRUE),
-         total_firstauth = sum(firstauth,na.rm=TRUE)) %>% 
-  add_count(value,sort=TRUE) %>% 
-  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) 
-```
 
 ```{r}
 year.countries.df <-  author.countries.df %>% 
@@ -434,15 +349,187 @@ pivot_longer(cols=c(starts_with("countries")), #take all country columns and mak
 ```
 
 ```{r}
-year.countries.df %>% group_by(value) %>% 
-  reframe(total_percountry = sum(countries_peryear,na.rm=TRUE),
-         total_firstauth = sum(firstauth,na.rm=TRUE)) %>% 
-ggplot() + 
-  geom_point(aes(x=total_percountry,y=value)) + 
-  geom_point(aes(x=ifelse(total_firstauth>0 & !duplicated(value),total_firstauth,NA),y=value),alpha=0.5,color="red")
+ year.countries.df <- author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all, #separate the list of all author countries 
+                       delim=",", #separate by comma
+                       names_sep="_", #delimiter separating names of new columns
+                       too_few="align_start") %>% #if there are uneven numbers, fill the remaining with NA  
+  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% #keep only year, type of paper, language, and country columns  
+  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
+pivot_longer(cols=c(starts_with("countries")), #take all country columns and make each their own row. makes a new column 'name' with the column name each country value came from 
+              #names_to="year",
+              values_drop_na=TRUE
+              ) %>% 
+  mutate(value=trimws(value,which="left"),
+          type=case_when(`Type of Paper` == "Basic/descriptive science" ~ "A", 
+                         `Type of Paper` == "Perspective/opinion" ~ "B", 
+                         `Type of Paper` == "Applied science" ~ "C", 
+                         .default=NA)) %>%
+  group_by(year,value,name) %>% 
+  mutate(firstauth=case_when(name=="countries_all_1" & row_number() == 1 ~ n(), #get the count of number of first author papers for each country each year
+                             .default=NA)) %>%
+  ungroup() %>%
+  group_by(year,value) %>% 
+  mutate(countries_peryear = case_when(
+    row_number() == 1 ~ n(),
+    .default=NA
+  )) %>% distinct() %>%
+  #group_by(year,value) %>% 
+  #filter(n()>1 & !is.na(firstauth) | n()==1) %>% #filter out duplicate rows where a country has a first author 
+  ungroup() %>% 
+  group_by(value) %>% 
+  mutate(total_percountry = case_when( row_number() == 1 ~ sum(countries_peryear,na.rm=TRUE),
+    .default=NA ), #get the total number of times a country is in a published paper  
+         total_firstauth = case_when(row_number() == 1 ~ sum(firstauth,na.rm=TRUE),
+    .default=NA )
+    ) %>% #get the total number of first author papers for each paper  
+  ungroup() %>%
+  arrange(desc(total_percountry)) %>% 
+  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) #order in descending order by the total number of papers
 ```
 
 
+
+Number of papers published from a country over time   
+```{r}
+country.authors.dotplot <- year.countries.df %>% 
+  ggplot(aes(x=year,y=value,color=firstauth)) + 
+  geom_point(aes(size=countries_peryear),alpha=0.95) + 
+  scale_size_continuous(name="Number of \n authors",range=c(3,10),breaks=c(1,5,10,20,40,60)) +
+  scale_color_gradientn(name="Number of \n first author \n publications",
+                        colors=c("#8ecae6","#219ebc","#023047","#ffb703","#fb8500")) + 
+  scale_x_continuous(minor_breaks = seq(from=1960,to=2025,by=5)) +
+  theme_bw() + 
+  ggpubr::labs_pubr() +
+  #cowplot::theme_minimal_hgrid() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="bottom",
+        panel.grid.major.y = element_line(color="grey80")
+        #panel.grid.minor.x = element_line(linetype=2,color="grey")
+        ) + 
+  guides(size=guide_legend(nrow=1,theme=theme(legend.key.size = unit(3, "point")))) +
+  labs(title="Authors in papers published each year",
+       caption="Points without a first author publication are colored in grey")
+
+country.authors.dotplot
+
+#ggsave("/Users/lauragivens/Downloads/roughdraft2.png",country.authors.dotplot,width=20,height=15)
+```
+```{r}
+country.pal <- c("#2f4b7c",
+"#a05195","#665191","#d45087",
+"#f95d6a","#ff7c43","#ffa600",
+"#003f5c","#4553c2", "#80b6aa", "#255026", "#49c32f", "#8e0049", "#fd5917", "#14c197", "#265582", "#d98ff4", "#7b038e", "#f75ef0", "#87a9fd", "#2524f9", "#85aa32", "#633d30", "#f5943b", "#a51409", "#fd8992", "#ff0087", "#c6a2ac",
+"#78b4c6", "#016876", "#5faf66", "#1f3ca6", "#e689eb", "#841ea4", "#9a95e5", "#5b3c5e", "#f642d0", "#0b5313", "#f85582", "#943105", "#f9905b", "#972554", "#0ec61c", "#e8250c", "#55450a", "#cba662", "#270fe2","#e29578","#83c5be","#ffddd2","#9c89b8","#ffbe0b"
+  )
+
+scales::show_col(country.pal)
+
+names(country.pal) <- unique(year.countries.df$value)
+```
+
+```{r}
+year.country.ridgeplot <- ggplot(year.countries.df, aes(x=year,y=value,height=countries_peryear,fill=value)) + 
+  geom_density_ridges2(scale = 8,linewidth=.1,alpha=0.9,stat="identity",na.rm=TRUE) +
+  #theme_ridges()  + 
+  theme_bw() +
+  scale_fill_manual(values=country.pal) + 
+  ggpubr::labs_pubr() +
+  #cowplot::theme_minimal_hgrid() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="none",
+        panel.grid.major.y = element_line(color="grey80"),
+        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
+        ) + 
+  labs(title="Change in authored papers by year") 
+
+year.country.ridgeplot
+
+#ggsave("/Users/lauragivens/Downloads/roughdraft1.png",year.country.ridgeplot,width=15,height=10)
+```
+
+```{r}
+year.country.ridgeplot2 <- year.country.ridgeplot +
+  scale_x_continuous(limits=c(1990,2026), expand = c(0,0)) 
+
+country.authors.dotplot2 <- country.authors.dotplot +
+  scale_x_continuous(limits=c(1990,2026), expand = c(0,0))
+```
+
+```{r}
+patchwork::wrap_plots((country.authors.dotplot2+theme(legend.position="top")+labs(caption=NULL)), #dotplot: country vs year, size of dot = number of papers that year, color=number of first authors
+           free(year.country.ridgeplot2) #ridgeplot: country vs year
+           )  +
+  plot_layout(widths=c(10,8))  + 
+  plot_annotation(title="Availability of evidence to inform marine conservation management in the Mesoamerican Reef Ecoregion",
+                  tag_levels="A",tag_suffix=".") & theme(text=element_text(size=16),plot.title=element_blank())
+
+ggsave("/Users/lauragivens/Downloads/roughdraft3check.png",width=20,height=12)
+```
+
+```{r,warning=FALSE}
+year.countries.df %>% 
+ggplot() + 
+  geom_point(aes(x=ifelse(total_percountry>0 & !duplicated(value),total_percountry,NA),y=value),alpha=0.7) + 
+  geom_point(aes(x=ifelse(total_firstauth>0 & !duplicated(value),total_firstauth,NA),y=value),alpha=0.9,color="red") +
+  theme_bw() + 
+  ggpubr::labs_pubr() +
+  theme(text=element_text(size=20),
+        axis.title.y=element_blank(),
+        panel.grid.major.y = element_line(color="grey80")
+        #panel.grid.minor.x = element_line(linetype=2,color="grey")
+        ) + 
+  guides(size=guide_legend(nrow=1)) +
+  labs(title="Country affiliation of authors of papers published ",
+       caption="First author country affiliation colored in red",
+       x="Number of authors")
+
+#ggsave("/Users/lauragivens/Downloads/roughdraft4.png",width=10,height=15)
+```
+```{r}
+scales::show_col(viridis::viridis_pal(option="D",begin=0,end=1)(5))
+scales::show_col(viridis::viridis_pal(option="C",begin=0,end=1)(5))
+scales::show_col(viridis::viridis_pal(option="B",begin=0.1,end=0.9)(5))
+scales::show_col(viridis::viridis_pal(option="A",begin=0.2,end=0.9)(5))
+
+country.pal2 <- c(
+                  viridis::viridis_pal(option="D",begin=0,end=1)(5),
+                  "#2f4b7c","#a05195","#665191","#d45087","#f95d6a",
+                  rev(viridis::viridis_pal(option="C",begin=0,end=1)(5)),
+                  "#ff7c43","#ffa600",
+                  viridis::viridis_pal(option="B",begin=0.1,end=0.8)(5),
+                  viridis::viridis_pal(option="A",begin=0.2,end=0.9)(5)
+                  )
+
+scales::show_col(country.pal2)
+```
+```{r,warning=FALSE}
+globe <- map_data("world")
+globe.mar <- full_join(globe,(year.countries.df %>% mutate(region=str_replace_all(value,"_"," "))))
+
+ggplot() + geom_polygon(data=globe.mar,aes(x=long,y=lat,group=group,fill=total_percountry),color="black") + scale_fill_gradient(na.value = "lightgrey")
+
+ggplot(data=globe.mar) +
+  geom_polygon(aes(x=long,y=lat,group=group,fill=total_percountry),color="black") + 
+  geom_point(aes(x=long,y=lat,
+                 color=total_firstauth,group=group,
+                 size=ifelse(total_firstauth>0 & !duplicated(value),total_firstauth,NA))) + 
+  scale_size(name="First author pubs",
+             breaks=c(1,10,20,30,60,90,120,150),
+             range=c(4,12)) + 
+  scale_fill_viridis_b(name="Total publications",
+                       option="F",
+                       begin=0.2,end=0.9,
+                       na.value="lightgrey",
+                       breaks=c(1,10,20,30,60,90,120,150)) + 
+  scale_color_gradientn(name="First author pubs",
+                        na.value = "lightgrey",colors=rev(c("#264653","#2a9d8f","#e9c46a","#f4a261")),
+  #scale_color_gradientn(na.value = "lightgrey",colors=c("#8ecae6","#219ebc","#023047","#ffb703","#fb8500"),
+                       breaks=waiver(),n.breaks=10 ) + 
+  theme_bw() + theme(legend.position="top")
+```
 ```{r}
 firstauthcountries.df %>% filter(n>2) %>% ggplot(aes(x=year,y=first_authors,fill=first_authors)) + 
   geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
@@ -452,14 +539,6 @@ year.countries.df %>% ggplot(aes(x=year,y=value,height=countries_peryear,fill=va
   #geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
   geom_ridgeline(scale=1,linewidth=1,alpha=0.6) +
   theme_ridges() + theme(legend.position="none")
-
-year.countries.df %>% ggplot(aes(x=year,y=value,color=firstauth)) + 
-  geom_point(aes(size=countries_peryear),alpha=0.8) + scale_color_gradient(na.value="grey") + theme_bw() + theme(text=element_text(size=14)) + scale_size_continuous(range=c(3,10))
-
-year.countries.df %>% 
-ggplot() + 
-  geom_point(aes(x=total_percountry,y=value)) + 
-  geom_point(aes(x=ifelse(total_firstauth>0 & !duplicated(value),total_firstauth,NA),y=value),alpha=0.5,color="red")
 ```
 
 
