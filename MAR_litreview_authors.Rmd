@@ -8,12 +8,21 @@ output: html_document
 library(readxl)
 library(readr)
 library(stringr)
+library(ggplot2)
+library(ggridges)
+library(tidyverse)
 ```
 
 Get list of addresses from file (made by copy/pasting the column from the lit review spreadsheet 20-5-2025)  
 ```{r}
-countries <- read_tsv("/Users/lauragivens/Downloads/mar_litreview_addresses.tsv")
+countries <- read_tsv("mar_litreview_addresses.tsv")
+newcountries <- read_tsv("mar_litreview_onlyrelevant.tsv")
 ```
+How many papers?  
+```{r}
+nrow(countries)
+```
+
 There is one line per paper; each line is made up of a list of all coauthor institutions 
 ```{r}
 head(countries)
@@ -28,14 +37,28 @@ Split each line at the semicolon, which makes a nested list. The countries2 list
   - Paper 2  
       > address 1  
       > address 2  
+
+We use regex to skip everything inside the square brackets, then split each line into addresses by semicolon like we did above.  
+
 ```{r}
-countries2 <- str_split(countries$addresses,";") 
-head(countries2)
+addresses <- strsplit(countries$addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T)
+tail(addresses)
 ```
-To grab the country of each author, we then select everything after the last comma ","   
 ```{r}
-authors <- lapply(countries2,function(x) {word(x,start=-1,sep=",")})
+rep.addresses <- rapply(addresses, function(x) ifelse(grepl("US|States",x),"USA",x), how = "replace")
+```
+
+```{r}
+#countries2 <- str_split(countries$addresses,";") 
+#tail(countries2)
+```
+
+We originally grabbed the country of each author by selecting everything after the last comma ","  
+```{r}
+authors <- lapply(rep.addresses,function(x) {word(x,start=-1,sep=",")}) 
 head(authors)
+
+tail(authors)
 ```
 
 To get the country of each first author, we take the first sub-element of every element in the list.  
@@ -57,25 +80,21 @@ However, we also have a few addresses that were added to the spreadsheet in a di
 countries[364:454,] %>% head()
 ```
 
-We use regex to skip everything inside the square brackets, then split each line into addresses by semicolon like we did above.  
-```{r}
-countries3 <- strsplit(countries[364:454,]$addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T)
-head(countries3)
-```
+
 Then we can grab everything after the last comma to get author country.  
 ```{r}
 authors2 <- lapply(countries3,function(x) {word(x,start=-1,sep=",")})
-head(authors2)
+#head(authors2)
 ```
 
 ```{r}
 firstauth2 <- lapply(authors2,function(x) x[[1]])
-head(firstauth2)
+#head(firstauth2)
 ```
 
 ```{r}
 coauth2 <- lapply(authors2,function(x) x[-1])
-head(coauth2)
+#head(coauth2)
 ```
 
 # Combine and clean up    
@@ -95,9 +114,9 @@ CoAuthors <- c(coauth[-c(364:454)],coauth2)
 
 So now that we have our (basically) complete lists, we need to deal with the leading whitespaces and the different ways the USA is written  
 ```{r}
-AuthorList <- lapply(AuthorList,function(x) {trimws(x,which="left")}) 
-FirstAuthors <- lapply(FirstAuthors,function(x) {trimws(x,which="left")}) 
-CoAuthors <- lapply(CoAuthors,function(x) {trimws(x,which="left")}) 
+AuthorList <- lapply(authors2,function(x) {trimws(x,which="left")}) 
+FirstAuthors <- lapply(firstauth,function(x) {trimws(x,which="left")}) 
+CoAuthors <- lapply(coauth,function(x) {trimws(x,which="left")}) 
 
 head(AuthorList)
 head(FirstAuthors)
@@ -142,26 +161,26 @@ firstauth[is.na(firstauth)]
 # Convert to df  
 ```{r}
 AuthorListeven<-lapply(AuthorListreps, "length<-" , max(lengths(AuthorListreps)))
-head(AuthorListeven)
+#head(AuthorListeven)
 
 AuthorList.df <- as.data.frame(do.call(rbind,AuthorListeven)) 
-head(AuthorList.df)
+#head(AuthorList.df)
 ```
 
 ```{r}
 FirstAuthorseven<-lapply(FirstAuthorsreps, "length<-" , max(lengths(FirstAuthorsreps)))
-head(FirstAuthorseven)
+#head(FirstAuthorseven)
 
 FirstAuthors.df <- as.data.frame(do.call(rbind,FirstAuthorseven)) 
-head(FirstAuthors.df)
+#head(FirstAuthors.df)
 ```
 
 ```{r}
 CoAuthorseven<-lapply(CoAuthorsreps, "length<-" , max(lengths(CoAuthorsreps)))
-head(CoAuthorseven)
+#head(CoAuthorseven)
 
 CoAuthors.df <- as.data.frame(do.call(rbind,CoAuthorseven)) 
-head(CoAuthors.df)
+#head(CoAuthors.df)
 ```
 
 
@@ -171,6 +190,278 @@ write_csv(AuthorList.df,"MAR_litreview_authorcountries.csv")
 write_csv(FirstAuthors.df,"MAR_litreview_firstauthorcountries.csv")
 write_csv(CoAuthors.df,"MAR_litreview_coauthorcountries.csv")
 ```
+
+
+# Using whole spreadsheet to look at patterns in related variables  
+
+## duplicate addresses  
+Trying to duplicate addresses for authors who were lumped together in square brackets because they're from the same institution 
+Come  back to this  
+```{r}
+#strsplit(countries$addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T)
+countries %>% 
+  filter(str_detect(addresses,"]") ) %>% 
+  mutate(n=str_count(
+    addresses, 
+    str_match(string=";",
+              pattern="\\[(;)\\]"
+              )
+    ), 
+    .after=authors)
+
+
+
+str_match_all(string=countries$addresses,pattern=";") %>% head()
+
+countries %>% 
+  filter(str_detect(addresses,"]") ) %>% .$addresses %>% str_extract_all(.,"\\[(.*?)\\]") %>% map_chr(.,toString) %>% head()
+```
+```{r}
+countries %>% select(c(authors,addresses)) %>% mutate(newauth=str_count(authors,pattern=";"),
+                      newadd=str_count(addresses,pattern=";"),
+                      same=(newauth==newadd)) %>% filter(same==FALSE) 
+```
+
+## dataset  
+```{r}
+rep.countries <- newcountries 
+rep.countries$addresses <- str_replace_all(rep.countries$addresses, "USA|US|U.S.A.|United States|United States of America", " USA")  
+rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "Britain|Great Britain", "Great_Britain") 
+rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "United Kingdom|UK", "United_Kingdom") 
+rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "New Caledonia", "New_Caledonia") 
+rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "Hong Kong", "Hong_Kong") 
+rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "Costa Rica", "Costa_Rica") 
+rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "South Africa", "South_Africa") 
+rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "United Arab Emirates", "UAE") 
+rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "South Korea", "South_Korea") 
+rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "Puerto Rico", "Puerto_Rico")
+rep.countries$addresses <- str_replace_all(rep.countries$addresses,"Cayman Islands", "Cayman_Islands")
+rep.countries$addresses <- str_replace_all(rep.countries$addresses,"Trinidad and Tobago", "Trinidad_and_Tobago")
+rep.countries$addresses <- str_replace_all(rep.countries$addresses,"Virgin Islands (British)|Virgin Islands", "Virgin_Islands")
+rep.countries$addresses <- str_replace_all(rep.countries$addresses,"St Kitts & Nevi", "StKitts_and_Nevi")
+#rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "FL|TX|ILLINOIS", "USA")
+
+#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\Florida.*","USA",x))
+#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\Texas.*","USA",x))
+#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\FL.*","USA",x))
+#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\TX.*","USA",x))
+#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\New York.*","USA",x))
+#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\ILLINOIS.*","USA",x))
+
+#tmp <- rep.countries %>%
+# mutate(
+#    countries_test = (strsplit(addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T) #%>% 
+#                            #lapply(.,function(x) {word(x,start=-1,sep=" ")}) %>% 
+#                            #map_chr(.,toString) 
+#                          ),
+#         countries_all = (strsplit(addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T) %>% 
+#                            lapply(.,function(x) {word(x,start=-1,sep=" ")}) %>% 
+#                            map_chr(.,toString) 
+#                          ),
+#         first_authors = (word(countries_all,start=1,sep=",")),
+#         #coauthors = countries_all[[-1]],
+#         .after=addresses) 
+
+author.countries.df <- rep.countries %>% 
+  mutate(addresses=sub("\\Florida.*"," USA",addresses)) %>% 
+  mutate(addresses=sub("\\Texas.*"," USA",addresses)) %>% 
+  mutate(addresses=sub("\\FL.*"," USA",addresses)) %>% 
+  mutate(addresses=sub("\\TX.*"," USA",addresses)) %>% 
+  mutate(addresses=sub("\\New York.*"," USA",addresses)) %>% 
+  mutate(addresses=sub("\\ILLINOIS.*"," USA",addresses)) %>% 
+  mutate(countries_all = (strsplit(addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T) %>% 
+                            lapply(.,function(x) {word(x,start=-1,sep=" ")}) %>% 
+                            map_chr(.,toString) 
+                          ),
+                          .after=addresses) %>% 
+  separate(countries_all,into=c("first_authors","coauthors"),sep=",",extra="merge",remove=F)
+```
+
+```{r}
+library(ggplot2)
+library(ggridges)
+```
+
+```{r}
+firstauthcountries.df <- author.countries.df %>% 
+  add_count(first_authors,sort=TRUE) %>% #filter(n>1) %>%
+  mutate(first_authors=factor(first_authors,
+                              levels=unique(first_authors),ordered=TRUE)) %>% 
+  ungroup() %>% group_by(year) %>% mutate(papers_peryear=n()) %>% 
+  group_by(year,first_authors,papers_peryear) %>% reframe(author_peryear=n(),n=n) 
+```
+
+```{r}
+firstauthcountries.df %>% ggplot(aes(x=year,fill=first_authors)) + geom_bar()
+firstauthcountries.df %>% ggplot(aes(x=year,y=papers_peryear,fill=first_authors)) + geom_bar(stat="identity",position="dodge")
+```
+
+```{r}
+firstauthcountries.df %>% filter(n>2) %>% ggplot(aes(x=year,y=first_authors,fill=first_authors)) + 
+  geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
+  theme_ridges() + theme(legend.position="none")
+
+ggsave("/Users/lauragivens/Downloads/roughdraft.png",width=15,height=7)
+```
+```{r}
+firstauthcountries.df %>% filter(n>2) %>% ggplot(aes(x=year,y=first_authors,fill=first_authors)) + 
+  geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
+  theme_ridges() + theme(legend.position="none")
+```
+
+```{r}
+# unique countries publishing in the MAR 
+all.countries <- lapply((author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all,delim=",",names_sep="_",too_few="align_start") %>% select(starts_with("countries"))),unique) %>% c() %>% unlist() %>% trimws(.,which="left") %>% unique()
+```
+```{r}
+year.countries.df <- author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all,delim=",",names_sep="_",too_few="align_start") %>%
+  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% 
+  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
+pivot_longer(cols=c(starts_with("countries")),
+              #names_to="year",
+              values_drop_na=TRUE
+              ) %>% group_by(year,value) %>% 
+  summarize(countries_peryear = n()) %>%
+  ungroup() %>% mutate(value=trimws(value,which="left")) %>%
+  #group_by(value) %>%  
+  add_count(value,sort=TRUE) %>% #filter(n>1) %>%
+  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) 
+```
+
+```{r}
+  year.countries.df %>% ggplot(aes(x=year,y=value,height=countries_peryear,fill=value)) + 
+  #geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
+  geom_ridgeline(scale=1,linewidth=1,alpha=0.6) +
+  theme_ridges() + theme(legend.position="none")
+```
+Number of papers published from a country over time  
+```{r}
+year.countries.df %>% ggplot(aes(x=year,y=value)) + 
+  geom_point(aes(size=countries_peryear))
+```
+
+```{r}
+year.countries.df <- 
+  author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all,
+                       delim=",",names_sep="_",
+                       too_few="align_start") %>%
+  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% 
+  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
+pivot_longer(cols=c(starts_with("countries")),
+              #names_to="year",
+              values_drop_na=TRUE
+              ) %>% 
+  mutate(value=trimws(value,which="left")) %>%
+  group_by(year,value,name) %>% 
+  mutate(firstauth=case_when(name=="countries_all_1" ~ n(),
+                             .default=NA)) %>%
+  ungroup() %>%
+  group_by(year,value) %>% 
+  reframe(countries_peryear = n(),
+            firstauth=unique(firstauth)) %>% 
+  group_by(year,value) %>% 
+  filter(n()>1 & !is.na(firstauth) | n()==1) %>% ungroup() %>%
+  add_count(value,sort=TRUE) %>% 
+  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) 
+```
+```{r}
+year.countries.df %>% ggplot(aes(x=year,y=value,color=firstauth)) + 
+  geom_point(aes(size=countries_peryear),alpha=0.8) + scale_color_gradient(na.value="grey") + theme_bw() + theme(text=element_text(size=14)) + scale_size_continuous(range=c(3,10))
+
+ggsave("/Users/lauragivens/Downloads/roughdraft2.png",width=14,height=12)
+```
+
+```{r}
+year.countries.df <- 
+  author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all,
+                       delim=",",names_sep="_",
+                       too_few="align_start") %>%
+  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% 
+  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
+pivot_longer(cols=c(starts_with("countries")),
+              #names_to="year",
+              values_drop_na=TRUE
+              ) %>% 
+  mutate(value=trimws(value,which="left")) %>%
+  group_by(year,value,name) %>% 
+  mutate(firstauth=case_when(name=="countries_all_1" ~ n(),
+                             .default=NA)) %>%
+  ungroup() %>%
+  group_by(year,value) %>% 
+  reframe(countries_peryear = n(),
+            firstauth=unique(firstauth)) %>% 
+  group_by(year,value) %>% 
+  filter(n()>1 & !is.na(firstauth) | n()==1) %>% ungroup() %>% group_by(value) %>% 
+  mutate(total_percountry = sum(countries_peryear,na.rm=TRUE),
+         total_firstauth = sum(firstauth,na.rm=TRUE)) %>% 
+  add_count(value,sort=TRUE) %>% 
+  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) 
+```
+
+```{r}
+year.countries.df <-  author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all, #separate the list of all author countries 
+                       delim=",", #separate by comma
+                       names_sep="_", #delimiter separating names of new columns
+                       too_few="align_start") %>% #if there are uneven numbers, fill the remaining with NA  
+  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% #keep only year, type of paper, language, and country columns  
+  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
+pivot_longer(cols=c(starts_with("countries")), #take all country columns and make each their own row. makes a new column 'name' with the column name each country value came from 
+              #names_to="year",
+              values_drop_na=TRUE
+              ) %>% 
+  mutate(value=trimws(value,which="left")) %>%
+  group_by(year,value,name) %>% 
+  mutate(firstauth=case_when(name=="countries_all_1" ~ n(), #get the count of number of first author papers for each country each year
+                             .default=NA)) %>%
+  ungroup() %>%
+  group_by(year,value) %>% 
+  reframe(countries_peryear = n(), #get the count of number of times an author from each country is published each year
+            firstauth=unique(firstauth)) %>% 
+  group_by(year,value) %>% 
+  filter(n()>1 & !is.na(firstauth) | n()==1) %>% #filter out duplicate rows where a country has a first author 
+  ungroup() %>% 
+  group_by(value) %>% 
+  mutate(total_percountry = sum(countries_peryear,na.rm=TRUE), #get the total number of times a country is in a published paper  
+         total_firstauth = sum(firstauth,na.rm=TRUE)) %>% #get the total number of first author papers for each paper  
+  ungroup() %>%
+  add_count(value,sort=TRUE) %>% 
+  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) #order in descending order by the total number of papers
+```
+
+```{r}
+year.countries.df %>% group_by(value) %>% 
+  reframe(total_percountry = sum(countries_peryear,na.rm=TRUE),
+         total_firstauth = sum(firstauth,na.rm=TRUE)) %>% 
+ggplot() + 
+  geom_point(aes(x=total_percountry,y=value)) + 
+  geom_point(aes(x=ifelse(total_firstauth>0 & !duplicated(value),total_firstauth,NA),y=value),alpha=0.5,color="red")
+```
+
+
+```{r}
+firstauthcountries.df %>% filter(n>2) %>% ggplot(aes(x=year,y=first_authors,fill=first_authors)) + 
+  geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
+  theme_ridges() + theme(legend.position="none")
+
+year.countries.df %>% ggplot(aes(x=year,y=value,height=countries_peryear,fill=value)) + 
+  #geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
+  geom_ridgeline(scale=1,linewidth=1,alpha=0.6) +
+  theme_ridges() + theme(legend.position="none")
+
+year.countries.df %>% ggplot(aes(x=year,y=value,color=firstauth)) + 
+  geom_point(aes(size=countries_peryear),alpha=0.8) + scale_color_gradient(na.value="grey") + theme_bw() + theme(text=element_text(size=14)) + scale_size_continuous(range=c(3,10))
+
+year.countries.df %>% 
+ggplot() + 
+  geom_point(aes(x=total_percountry,y=value)) + 
+  geom_point(aes(x=ifelse(total_firstauth>0 & !duplicated(value),total_firstauth,NA),y=value),alpha=0.5,color="red")
+```
+
 
 ```{r}
 save.image("/Users/lauragivens/Desktop/R/")
