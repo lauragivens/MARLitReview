@@ -14,123 +14,539 @@ library(tidyverse)
 library(patchwork)
 ```
 
-Get list of addresses from file (made by copy/pasting the column from the lit review spreadsheet 20-5-2025)  
-```{r}
-countries <- read_tsv("mar_litreview_addresses.tsv")
-newcountries <- read_tsv("mar_litreview_onlyrelevant.tsv")
-IsraelMergedDB <- read.csv("Merged and cleaned database for literature review.csv")
-```
-How many papers?  
-```{r}
-nrow(countries)
-```
+# Methods   
 
+## 1. Download MAR Literature Review - Spreadsheet (most recent: 31 July 2025)  
+
+## 2. Read into R  
 There is one line per paper; each line is made up of a list of all coauthor institutions 
-```{r}
-head(countries)
+```{r load}
+spdsht <- read_xlsx("/Users/lauragivens/Downloads/MAR\ Literature\ Review\ -\ Spreadsheet.xlsx",sheet = "ReviewSummary",col_names = TRUE,skip=2)
 ```
 
-Split each line at the semicolon, which makes a nested list. The countries2 list has 454 elements, which corresponds to the 454 papers. Each of those elements has one sub-element per address.    
-* List  
-  - Paper 1  
-      > address 1  
-      > address 2  
-      > address 3  
-  - Paper 2  
-      > address 1  
-      > address 2  
-
-We use regex to skip everything inside the square brackets, then split each line into addresses by semicolon like we did above.  
-
-```{r}
-addresses <- strsplit(countries$addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T)
-tail(addresses)
-```
-```{r}
-rep.addresses <- rapply(addresses, function(x) ifelse(grepl("US|States",x),"USA",x), how = "replace")
+## 3. Subset spreadsheet to only papers that were identified as relevant  
+```{r subset}
+rel.spdsht <- spdsht %>% filter(str_detect(`Relevant to the manuscript?`,"Yes"))
 ```
 
-```{r}
-#countries2 <- str_split(countries$addresses,";") 
-#tail(countries2)
+## 4. Extract author countries from given addresses and split into first/coauthors  
+_4a. Name repair_  
+We remove the spaces in any of the country names so they aren't split later  
+```{r remspaces}
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses, "USA|US|U.S.A.|United States|United States of America", " USA")  
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "Britain|Great Britain", "Great_Britain") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "United Kingdom|UK", "United_Kingdom") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "New Caledonia", "New_Caledonia") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "Hong Kong", "Hong_Kong") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "Costa Rica", "Costa_Rica") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "South Africa", "South_Africa") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "United Arab Emirates", "UAE") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "South Korea", "South_Korea") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "Puerto Rico", "Puerto_Rico")
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses,"Cayman Islands", "Cayman_Islands")
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses,"Trinidad and Tobago", "Trinidad_and_Tobago")
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses,"Virgin Islands (British)|Virgin Islands", "Virgin_Islands")
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses,"St Kitts & Nevi", "StKitts_and_Nevi")
+```
+_4b. Split strings_  
+```{r splitaddresses}
+author.countries.df <- rel.spdsht %>% 
+  mutate(edit.addresses=addresses,.after=addresses) %>% 
+  mutate(edit.addresses=sub("\\Florida.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\Texas.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\FL.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\TX.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\New York.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\ILLINOIS.*"," USA",edit.addresses)) %>% 
+  mutate(countries_all = (strsplit(edit.addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T) %>% 
+                            lapply(.,function(x) {word(x,start=-1,sep=" ")}) %>% 
+                            map_chr(.,toString) 
+                          ),
+                          .after=edit.addresses) %>% 
+  separate(countries_all,into=c("first_authors","coauthors"),sep=",",extra="merge",remove=F)
+```
+## 5. Data frame manipulation    
+
+_5a. Rename some values for ease of understanding_     
+_Open access tiers_  
+Diamond/Platinum = OA for readers at no cost to authors   
+Gold = final version of article is open access immediately following publication   
+Hybrid = available to subscribers to the journal but also freely available to everyone   
+Green = pre-print/publisher's version can be archived   
+```{r updateOA}
+author.countries.df <- author.countries.df %>%
+  mutate(OA=case_when(open_access=="NA" ~ "Not Open Access",
+                      str_detect(open_access,"iamond|latinum") ~ "Diamond",
+                           str_detect(open_access,"old") ~ "Gold",
+                           str_detect(open_access,"reen") & !str_detect(open_access,"old") ~ "Green",
+                           str_detect(open_access,"ronze") & !str_detect(open_access,"old") & !str_detect(open_access,"reen") ~ "Bronze",
+                           str_detect(open_access,"ybrid") ~ "Hybrid",
+                               .default=open_access),
+         .after=open_access)
+```
+_Shorten paper category names_
+```{r papercategory}
+author.countries.df <- author.countries.df %>% 
+  mutate(PaperType=case_when(`Type of Paper` == "Basic/descriptive science" ~ "A", 
+                         `Type of Paper` == "Perspective/opinion" ~ "B", 
+                         `Type of Paper` == "Applied science" ~ "C", 
+                         .default="Not assigned"),
+         .after=`Type of Paper`
+         )
+```
+_Identify collaboration within MAR_  
+Add information about whether there was collaboration with people in country  
+```{r marcollab}
+author.countries.df <- author.countries.df %>% 
+  mutate(marfirst=case_when(str_detect(first_authors,
+                                       "Mexico|Belize|Guatemala|Honduras") ~ "Lead",
+                            str_detect(coauthors,
+                                       "Mexico|Belize|Guatemala|Honduras") ~ "Coauthor",
+                            .default="Not author"),
+         .after="first_authors") 
 ```
 
-We originally grabbed the country of each author by selecting everything after the last comma ","  
+_5b. Make figure data frames_    
+Calculate how productive each country is and how that number changes over time  
 ```{r}
-authors <- lapply(rep.addresses,function(x) {word(x,start=-1,sep=",")}) 
-head(authors)
-
-tail(authors)
+firstauthcountries.df <- author.countries.df %>% 
+  add_count(first_authors,sort=TRUE,name="TotalPapersCountry") %>%  #count how many papers for each country
+  #filter(n>1) %>%
+  mutate(first_authors=factor(first_authors, #set names of country as factors
+                              levels=unique(first_authors),ordered=TRUE)) %>% 
+  ungroup() %>% group_by(year) %>% #group by year
+  mutate(papers_peryear=n()) %>% #count number of total papers in a year
+  ungroup() %>% group_by(year,first_authors,papers_peryear) %>% #group by year and country
+  reframe(author_peryear=n(), #count number of papers coming out of a country in each year
+          TotalPapersCountry=TotalPapersCountry) 
+```
+How many countries overall are involved in the papers we identified?  
+```{r}
+# unique countries publishing in the MAR 
+all.countries <- lapply((author.countries.df %>% 
+  separate_wider_delim(., #split a string into columns 
+                       cols=countries_all,
+                       delim=",", #delimiter between values to separate
+                       names_sep="_", #output column names are separated with
+                       too_few="align_start" #adds NA to any strings that are too short to fill in all columns
+                       ) %>% 
+    select(starts_with("countries"))),unique) %>% 
+  c() %>% unlist() %>% 
+  trimws(.,which="left") %>% unique()
 ```
 
-To get the country of each first author, we take the first sub-element of every element in the list.  
+```{r notthisoneIthink,eval=FALSE}
+year.countries.df <-  author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all, #separate the list of all author countries 
+                       delim=",", #separate by comma
+                       names_sep="_", #delimiter separating names of new columns
+                       too_few="align_start") %>% #if there are uneven numbers, fill the remaining with NA  
+  select(c(year,
+           starts_with("Type"),
+           language,
+           starts_with("countr"))
+         ) %>% #keep only year, type of paper, language, and country columns  
+  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
+pivot_longer(cols=c(starts_with("countries")), #take all country columns and make each their own row. makes a new column 'name' with the column name each country value came from 
+              #names_to="year",
+              values_drop_na=TRUE
+              ) %>% 
+  mutate(value=trimws(value,which="left")) %>%
+  group_by(year,value,name) %>% 
+  mutate(firstauth=case_when(name=="countries_all_1" ~ n(), #get the count of number of first author papers for each country each year
+                             .default=NA)) %>%
+  ungroup() %>%
+  group_by(year,value) %>% 
+  reframe(countries_peryear = n(), #get the count of number of times an author from each country is published each year
+            firstauth=unique(firstauth)) %>% 
+  group_by(year,value) %>% 
+  filter(n()>1 & !is.na(firstauth) | n()==1) %>% #filter out duplicate rows where a country has a first author 
+  ungroup() %>% 
+  group_by(value) %>% 
+  mutate(total_percountry = sum(countries_peryear,na.rm=TRUE), #get the total number of times a country is in a published paper  
+         total_firstauth = sum(firstauth,na.rm=TRUE)) %>% #get the total number of first author papers for each paper  
+  ungroup() %>%
+  add_count(value,sort=TRUE) %>% 
+  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) #order in descending order by the total number of papers
+```
+data frame to look at the country affiliation of ALL authors (first and coauthor)
 ```{r}
-firstauth <- lapply(authors,function(x) x[[1]])
-head(firstauth)
+ year.countries.df <- author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all, #separate the list of all author countries 
+                       delim=",", #separate by comma
+                       names_sep="_", #delimiter separating names of new columns
+                       too_few="align_start") %>% #if there are uneven numbers, fill the remaining with NA  
+  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% #keep only year, type of paper, language, and country columns  
+  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
+pivot_longer(cols=c(starts_with("countries")), #take all country columns and make each their own row. makes a new column 'name' with the column name each country value came from 
+              #names_to="year",
+              values_drop_na=TRUE
+              ) %>% 
+  mutate(value=trimws(value,which="left")) %>%
+  
+  #### first, sum the country affiliation of each first author for each year #### 
+  
+  group_by(year,value,name) %>% 
+  mutate(firstauth=case_when(name=="countries_all_1" & row_number() == 1 ~ n(), #get the count of number of first author papers for each country each year
+                             .default=NA)) %>%
+  
+  #### next, sum the total participation: for ALL authors, how many are from each country each year? #### 
+  
+  ungroup() %>%
+  group_by(year,value) %>% 
+  mutate(total_percountry_peryear = case_when(
+    row_number() == 1 ~ n(),
+    .default=NA
+  )) %>% #distinct() %>%
+  #group_by(year,value) %>%  #filter(n()>1 & !is.na(firstauth) | n()==1) %>% #filter out duplicate rows where a country has a first author 
+  
+  #### then, sum the total participation: for ALL authors, how many are from each country? ####
+  
+  ungroup() %>% 
+  group_by(value) %>% 
+  mutate(total_percountry = case_when( row_number() == 1 ~ sum(total_percountry_peryear,na.rm=TRUE),
+    .default=NA ), #get the total number of times a country is in a published paper  
+    
+  #### then, get the total number of first author papers for each country? ####
+    
+         total_firstauth = case_when(row_number() == 1 ~ sum(firstauth,na.rm=TRUE),
+    .default=NA )
+    ) %>% #get the total number of first author papers for each  
+  ungroup() %>%
+  select(-name) %>% distinct() %>%
+  arrange(desc(total_percountry)) %>% 
+  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) #order in descending order by the total number of papers
+```
+```{r}
+#check accuracy 
+## should both be 309
+sum(year.countries.df$firstauth,na.rm=TRUE)
+sum(year.countries.df$total_firstauth,na.rm=TRUE)
 ```
 
-To get the countries of all other authors, we remove the first sub-element of every element in the list.  
+## 6. Analysis  
+
+### Overall numbers  
+*How many papers did we start with/end with?*  
 ```{r}
-coauth <- lapply(authors,function(x) x[-1])
-head(coauth)
+nrow(spdsht)
+nrow(rel.spdsht)
+```
+454 papers -> 309 papers  
+*does not include lines where reviewers have not reviewed articles yet* 
+
+### Figure: Papers by country  
+```{r}
+year.country.ridgeplot <- ggplot(year.countries.df, aes(x=year,y=value,height=total_percountry_peryear,fill=value)) + 
+  geom_density_ridges2(scale = 8,linewidth=.1,alpha=0.9,stat="identity",na.rm=TRUE) +
+  #theme_ridges()  + 
+  theme_bw() +
+  scale_fill_manual(values=country.pal) + 
+  ggpubr::labs_pubr() +
+  #cowplot::theme_minimal_hgrid() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="none",
+        panel.grid.major.y = element_line(color="grey80"),
+        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
+        ) + 
+  labs(title="Change in authored papers by year") 
+
+year.country.ridgeplot
+
+#ggsave("/Users/lauragivens/Downloads/roughdraft1.png",year.country.ridgeplot,width=15,height=10)
 ```
 
-However, we also have a few addresses that were added to the spreadsheet in a different way. These look to be split by institution.  
+#### Analysis: Where are most authors coming from?  
 
-# Address unusual author address  
+*How many countries have been involved in scientific articles regarding the MAR?*    
 ```{r}
-countries[364:454,] %>% head()
+length(all.countries[!is.na(all.countries)])
+```
+43 countries  
+
+*Most productive countries overall? (including first and coauthors)*  
+```{r}
+top10 <- year.countries.df %>% arrange(desc(total_percountry)) %>% .$value %>% unique() %>% .[1:10]
+
+top15 <- year.countries.df %>% filter(value != "NA") %>% arrange(desc(total_percountry)) %>% .$value %>% unique() %>% .[1:15]
+
+top10
+```
+Mexico comes in first, followed by US and UK  
+
+Do those super productive countries change if we only look at the last 10 years? How about 5? 
+```{r}
+top10.2015 <- year.countries.df %>% filter(year>2015) %>% group_by(value) %>% mutate(newtotal=sum(total_percountry_peryear,na.rm = TRUE)) %>% arrange(desc(newtotal)) %>% .$value %>% unique() %>% .[1:10]
+
+top10.2020 <- year.countries.df %>% filter(year>2020) %>% group_by(value) %>% mutate(newtotal=sum(total_percountry_peryear,na.rm = TRUE)) %>% arrange(desc(newtotal)) %>% .$value %>% unique() %>% .[1:10]
+
+top10.2015
+top10.2020
+```
+Minor changes after US and Mexico, but nothing substantial I think.  
+
+How productive are these countries?  
+```{r}
+year.countries.df %>% filter(value %in%top10) %>% select(c(value,total_percountry,total_firstauth))
 ```
 
-
-Then we can grab everything after the last comma to get author country.  
+Who was publishing early?  
 ```{r}
-authors2 <- lapply(countries3,function(x) {word(x,start=-1,sep=",")})
-#head(authors2)
-```
-
-```{r}
-firstauth2 <- lapply(authors2,function(x) x[[1]])
-#head(firstauth2)
-```
-
-```{r}
-coauth2 <- lapply(authors2,function(x) x[-1])
-#head(coauth2)
-```
-
-# Combine and clean up    
-```{r}
-length(authors) #check length of author list
-authors[-c(364:454)] %>% length() #check length of author list minus the ones that had a different structure 
-length(authors2) #check length of our unusual author list
-#should equal the same amount  
-
-AuthorList <- c(authors[-c(364:454)],authors2)
-length(AuthorList) #double check that everything added together correctly 
-
-FirstAuthors <- c(firstauth[-c(364:454)],firstauth2)
-
-CoAuthors <- c(coauth[-c(364:454)],coauth2)
-```
-
-So now that we have our (basically) complete lists, we need to deal with the leading whitespaces and the different ways the USA is written  
-```{r}
-AuthorList <- lapply(authors2,function(x) {trimws(x,which="left")}) 
-FirstAuthors <- lapply(firstauth,function(x) {trimws(x,which="left")}) 
-CoAuthors <- lapply(coauth,function(x) {trimws(x,which="left")}) 
-
-head(AuthorList)
-head(FirstAuthors)
-head(CoAuthors)
+year.countries.df %>% filter(year < 2006) %>% select(c(year,value,firstauth,total_percountry_peryear,total_firstauth)) %>% distinct() %>% arrange(year)
 ```
 
 ```{r}
-AuthorListrep <- rapply(AuthorList, function(x) ifelse(grepl("US|States",x),"United States of America",x), how = "replace")
-FirstAuthorsrep <- rapply(FirstAuthors, function(x) ifelse(grepl("US|States",x),"United States of America",x), how = "replace")
-CoAuthorsrep <- rapply(CoAuthors, function(x) ifelse(grepl("US|States",x),"United States of America",x), how = "replace")
+year.countries.df %>% filter(year < 2006) %>% select(c(year,value,firstauth,total_percountry_peryear,total_firstauth)) %>% 
+  group_by(value) %>% 
+  summarize(first=sum(firstauth,na.rm=TRUE),
+            total=sum(total_percountry_peryear,na.rm=TRUE))
 ```
 
+```{r}
+length(year.countries.df %>% filter(year < 2006) %>% .$value %>% unique())
+year.countries.df %>% filter(year < 2006) %>% .$value %>% unique()
+```
+
+```{r}
+length(year.countries.df %>% filter(year > 2006) %>% .$value %>% unique())
+year.countries.df %>% filter(year > 2006) %>% .$value %>% unique()
+```
+
+
+### Figure: Authorship  
+```{r}
+country.authors.dotplot <-  year.countries.df %>% group_by(year,value) %>% summarize(firstauth=sum(firstauth,na.rm=TRUE),total_percountry_peryear=sum(total_percountry_peryear,na.rm=TRUE)) %>% #year.countries.df %>% 
+  ggplot(aes(x=year,y=value,color=firstauth)) + 
+  geom_point(aes(size=total_percountry_peryear),alpha=0.95) + 
+  scale_size_continuous(name="Number of \n authors",range=c(3,10),breaks=c(1,5,10,20,40,55)) +
+  scale_color_gradientn(name="Number of \n first author \n publications",
+                        colors=c("#d2ebf1","#219ebc","#176e83","#023047","#ffb703","#fb9d32","#fb8500")) + 
+  scale_x_continuous(minor_breaks = seq(from=1960,to=2025,by=5)) +
+  theme_bw() + 
+  ggpubr::labs_pubr() +
+  #cowplot::theme_minimal_hgrid() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="bottom",
+        panel.grid.major.y = element_line(color="grey80")
+        #panel.grid.minor.x = element_line(linetype=2,color="grey")
+        ) + 
+  guides(size=guide_legend(nrow=1,theme=theme(legend.key.size = unit(3, "point")))) +
+  labs(title="Authors in papers published each year",
+       caption="Points without a first author publication are colored in grey")
+
+country.authors.dotplot
+
+#ggsave("/Users/lauragivens/Downloads/roughdraft2.png",country.authors.dotplot,width=20,height=15)
+```
+
+#### Analysis: Authorship  
+*How many different first author countries?*  
+```{r}
+firstauthcountries.df %>% .$first_authors %>% unique() %>% length()
+```
+29 different countries were first authors  
+and of those 29, the USA had the most number of first author publications closely followed by Mexico, with the UK in a distant 3rd 
+```{r}
+firstauthcountries.df %>% filter(!duplicated(first_authors)) %>% arrange(desc(TotalPapersCountry)) %>% .$first_authors
+#double check that math is right: does TotalPapersCountry add up to the total number of papers? 
+#firstauthcountries.df %>% filter(!duplicated(first_authors)) %>% .$TotalPapersCountry %>% sum() #totals 309
+```
+
+# PubFig: Country authorship over time   
+Figure showing publication patterns for the 15 most productive countries.  
+A. looks at how magnitude and participation in published research focused on the MAR has changed over time. The height of each country's ridge indicates the number of authors per year.   
+B. looks at who is leading research in the MAR. Point size corresponds to the number of authors from that countries in published papers per year. The color of the point represents how many, if any, of those publications are first-author publications. 
+```{r}
+subs.country.authors.dotplot <- year.countries.df %>% group_by(year,value) %>% summarize(firstauth=sum(firstauth,na.rm=TRUE),total_percountry_peryear=sum(total_percountry_peryear,na.rm=TRUE)) %>% filter(value%in%top15) %>% filter(!is.na(firstauth) | !is.na(total_percountry_peryear)) %>%
+  ggplot(aes(x=year,y=value,
+             color=ifelse(!is.na(firstauth),firstauth,NA))) + 
+  geom_point(aes(size=ifelse(!is.na(total_percountry_peryear),total_percountry_peryear,NA)),alpha=0.95) + 
+  scale_size_continuous(name="Number of \n authors",range=c(3,10),breaks=c(1,5,10,20,40,55)) +
+  scale_color_gradientn(name="Number of \n first author \n publications",
+                        colors=c("grey","#219ebc","#176e83","#023047","#ffb703","#fb9d32","#fb8500")) + 
+  scale_x_continuous(minor_breaks = seq(from=1960,to=2025,by=5)) +
+  theme_bw() +
+  ggpubr::labs_pubr() +
+  scale_x_continuous(limits=c(1990,2026), expand = c(0,0)) + 
+  theme(legend.position="top")+labs(caption=NULL)  +
+  #cowplot::theme_minimal_hgrid() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        panel.grid.major.y = element_line(color="grey80")
+        #panel.grid.minor.x = element_line(linetype=2,color="grey")
+        ) + 
+  guides(size=guide_legend(nrow=1,theme=theme(legend.key.size = unit(3, "point")))) +
+  labs(title="Authors in papers published each year",
+       caption="Points without a first author publication are colored in grey")
+
+subs.year.country.ridgeplot <- year.countries.df %>% filter(value%in%top15) %>% 
+  ggplot( aes(x=year,y=value,height=total_percountry_peryear,fill=value)) + 
+  geom_density_ridges2(scale = 8,linewidth=.1,alpha=0.9,stat="identity",na.rm=TRUE) +
+  #theme_ridges()  + 
+  theme_bw() +
+  scale_fill_manual(values=country.pal) + 
+  ggpubr::labs_pubr()  +
+  scale_x_continuous(limits=c(1990,2026), expand = c(0,0)) +
+  #cowplot::theme_minimal_hgrid() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="none",
+        panel.grid.major.y = element_line(color="grey80"),
+        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
+        ) + 
+  labs(title="Change in authored papers by year") 
+```
+```{r,warning=FALSE,message=FALSE}
+country.authorship.wrapplot <- patchwork::wrap_plots(subs.year.country.ridgeplot,
+                      subs.country.authors.dotplot + theme(legend.box = "vertical")
+           )  +
+  plot_layout(widths=c(8,10),design="
+              A#
+              AB
+              AB
+              AB
+              AB
+              AB
+              AB
+              AB")  + 
+  plot_annotation(title="Availability of evidence to inform marine conservation management in the Mesoamerican Reef Ecoregion") & theme(text=element_text(size=16),plot.title=element_blank())
+
+country.authorship.wrapplot
+#ggsave("/Users/lauragivens/Downloads/country.authorship.wrapplot.png",width=15,height=7,bg="white")
+```
+Over time, authors from more countries were participating in research focused in the MAR and the number of publications per year increases as well. Authors from a total of 43 countries were involved in publishing research set in the MAR. Of those, 29 countries had at least one first author publication. Authors from Mexico and the United States were the most productive, with 107 and 108 first author publications, respectively. 
+
+### How many include authors from the region?  
+In the previous figure we saw how the number of first author publications has changed, but what about overall?  
+
+#### Figure  
+```{r}
+paper.marauth <- ggplot(author.countries.df) + 
+  geom_bar(aes(x=year,fill=marfirst),color="black") + 
+ # viridis::scale_fill_viridis(option="plasma",discrete=TRUE,end=0.9)
+  scale_fill_manual(name="MAR authorship status",
+                    values=c("#2a9d8f","#e76f51","grey60"),
+                    na.value = "grey60")
+
+paper.marauth
+```
+
+#### Analysis  
+```{r}
+participation.df <- author.countries.df %>% 
+  group_by(year,marfirst) %>% 
+  summarize(n=n()) %>% 
+  pivot_wider(names_from="marfirst",values_from="n") %>% 
+  mutate(total=sum(`Not author`,Lead,Coauthor,na.rm=TRUE),
+         perc=sum(Lead,Coauthor,na.rm = TRUE)/total,
+         leadperc=sum(Lead,na.rm=TRUE)/total
+         ) %>% arrange(desc(year))
+
+participation.df
+```
+Prior to 2006, only 1-2 papers focusing on the MAR were published each year   
+```{r}
+participation.df %>% filter(year<2006 & total>0) %>% .$total %>% range()
+```
+Prior to 2000, only 1-2 papers focusing on the MAR were published each year   
+```{r}
+participation.df %>% filter(year<2000 & total>0) %>% .$total %>% range()
+```
+15% of those papers included someone from within the region in the authorship list.   
+```{r}
+participation.df %>% filter(year<2000 & total>0) %>% .$perc %>% mean()
+```
+Publishing began to increase after 2006, breaking the double digits  
+```{r}
+participation.df %>% filter(year>2000 & year<2011)
+```
+```{r}
+participation.df %>% filter(year>2006 & year<2014) %>% .$perc %>% mean(.,na.rm=TRUE)
+participation.df %>% filter(year>2006 & year<2014) %>% .$leadperc %>% mean(.,na.rm=TRUE)
+```
+
+In the last ten years, 49.74% of papers have included someone from within country, 42.54% of which were led by the first author.   
+```{r}
+participation.df %>% filter(year>2014 & year <2025) %>% .$total %>% range(.,na.rm=TRUE)
+participation.df %>% filter(year>2014 & year <2025) %>% .$perc %>% mean(.,na.rm=TRUE)
+
+participation.df %>% filter(year>2014 & year <2025) %>% .$leadperc %>% mean(.,na.rm=TRUE)
+```
+
+
+### Figure: Papers over time    
+Look at the type of paper (we're assuming applied science papers are more directly usable by managers) and accessibility (open access status) over time  
+```{r}
+paper.marauth <- ggplot(author.countries.df) + 
+  geom_bar(aes(x=year,fill=marfirst),color="black") + 
+ # viridis::scale_fill_viridis(option="plasma",discrete=TRUE,end=0.9)
+  scale_fill_manual(name="MAR authorship status",
+                    values=c("#2a9d8f","#e76f51","grey60"),
+                    na.value = "grey60")
+
+paper.lang <- ggplot(author.countries.df) + 
+  geom_bar(aes(x=year,fill=language),color="black") + 
+  viridis::scale_fill_viridis(name="Published language",option="plasma",discrete=TRUE,begin=0.2,end=0.6)
+#  scale_fill_manual(name="Published language",
+ #                   values=c("#89a1ef","#5c8001"),
+ #                   na.value = "grey60")
+
+paper.type <- ggplot(author.countries.df) + 
+  geom_bar(aes(x=year,fill=`Type of Paper`),color="black")  + 
+  scale_y_continuous(expand=c(0,0),limits=c(0,25)) + 
+  viridis::scale_fill_viridis(name="Type of research",option="plasma",discrete=TRUE,end=0.8) +
+  #scale_fill_manual(name="Type of research",
+  #                  values=c("#8338ec","#e07a5f","#3d405b"),
+  #                  na.value = "grey60") + 
+  guides(fill=guide_legend(nrow=2))
+
+paper.oa <- ggplot(author.countries.df) + 
+  geom_bar(aes(x=year,fill=OA),color="black") + 
+  scale_y_continuous(expand=c(0,0),limits=c(0,25)) + 
+  #viridis::scale_fill_viridis(name="Open access status",option="inferno",discrete=TRUE,begin=0.9,end=0.15)
+  scale_fill_manual(name="Open access status",
+                    values=c("#335c97","#e09f3e","#a3b369","#9e2a2b","grey50"),
+                    na.value = "grey60") + guides(fill=guide_legend(nrow=2))
+```
+```{r accessplot}
+accessibility.plot <- wrap_plots(paper.type,paper.oa) + 
+  plot_annotation(tag_levels="A",tag_suffix = ".") & theme_bw() + 
+  ggpubr::labs_pubr()  + 
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="bottom",
+        panel.grid.major.y = element_line(color="grey80"),
+        line = element_line(linewidth=0.5)
+        )
+
+accessibility.plot
+#ggsave(filename="/Users/lauragivens/Downloads/MAR_litaccess.plot.png",plot=accessibility.plot,height=5,width=15,bg="white")
+```
+#### Analysis  
+```{r accessplot_stats}
+
+```
+
+
+### Type of research  
+### Usability of literature over time   
+
+
+
+```{r}
+author.countries.df %>% group_by(year,`Type of Paper`) %>% 
+  summarize(n=n()) %>% 
+  pivot_wider(names_from=`Type of Paper`,values_from="n") %>% 
+  mutate(total=sum(`NA`,"Basic/descriptive science","Perspective/opinion","Applied science",na.rm=TRUE),
+         perc=sum("Applied science",na.rm = TRUE)/total
+         ) %>% arrange(desc(year))
+```
+
+
+
+# ~~~~~
 ```{r}
 #can check that the replacement worked  
 #AuthorList
@@ -152,50 +568,7 @@ CoAuthorsreps <- rapply(CoAuthorsrep, function(x) ifelse(grepl("FL|TX",x),"Unite
 #AuthorListreps
 ```
 
-
-# Address NA countries?   
-Ask why in meeting 
-```{r}
-firstauth[is.na(firstauth)] 
-```
-
-# Convert to df  
-```{r}
-AuthorListeven<-lapply(AuthorListreps, "length<-" , max(lengths(AuthorListreps)))
-#head(AuthorListeven)
-
-AuthorList.df <- as.data.frame(do.call(rbind,AuthorListeven)) 
-#head(AuthorList.df)
-```
-
-```{r}
-FirstAuthorseven<-lapply(FirstAuthorsreps, "length<-" , max(lengths(FirstAuthorsreps)))
-#head(FirstAuthorseven)
-
-FirstAuthors.df <- as.data.frame(do.call(rbind,FirstAuthorseven)) 
-#head(FirstAuthors.df)
-```
-
-```{r}
-CoAuthorseven<-lapply(CoAuthorsreps, "length<-" , max(lengths(CoAuthorsreps)))
-#head(CoAuthorseven)
-
-CoAuthors.df <- as.data.frame(do.call(rbind,CoAuthorseven)) 
-#head(CoAuthors.df)
-```
-
-
-# export final lists  
-```{r}
-write_csv(AuthorList.df,"MAR_litreview_authorcountries.csv")
-write_csv(FirstAuthors.df,"MAR_litreview_firstauthorcountries.csv")
-write_csv(CoAuthors.df,"MAR_litreview_coauthorcountries.csv")
-```
-
-
-# Using whole spreadsheet to look at patterns in related variables  
-
-## duplicate addresses  
+dealing with duplicate addresses  
 Trying to duplicate addresses for authors who were lumped together in square brackets because they're from the same institution 
 Come  back to this  
 ```{r,eval=FALSE}
@@ -223,221 +596,6 @@ countries %>% select(c(authors,addresses)) %>% mutate(newauth=str_count(authors,
                       same=(newauth==newadd)) %>% filter(same==FALSE) 
 ```
 
-### Replace spaces in country names    
-```{r}
-rep.countries <- newcountries 
-rep.countries$addresses <- str_replace_all(rep.countries$addresses, "USA|US|U.S.A.|United States|United States of America", " USA")  
-rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "Britain|Great Britain", "Great_Britain") 
-rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "United Kingdom|UK", "United_Kingdom") 
-rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "New Caledonia", "New_Caledonia") 
-rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "Hong Kong", "Hong_Kong") 
-rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "Costa Rica", "Costa_Rica") 
-rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "South Africa", "South_Africa") 
-rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "United Arab Emirates", "UAE") 
-rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "South Korea", "South_Korea") 
-rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "Puerto Rico", "Puerto_Rico")
-rep.countries$addresses <- str_replace_all(rep.countries$addresses,"Cayman Islands", "Cayman_Islands")
-rep.countries$addresses <- str_replace_all(rep.countries$addresses,"Trinidad and Tobago", "Trinidad_and_Tobago")
-rep.countries$addresses <- str_replace_all(rep.countries$addresses,"Virgin Islands (British)|Virgin Islands", "Virgin_Islands")
-rep.countries$addresses <- str_replace_all(rep.countries$addresses,"St Kitts & Nevi", "StKitts_and_Nevi")
-#rep.countries$addresses <-   str_replace_all(rep.countries$addresses, "FL|TX|ILLINOIS", "USA")
-
-#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\Florida.*","USA",x))
-#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\Texas.*","USA",x))
-#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\FL.*","USA",x))
-#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\TX.*","USA",x))
-#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\New York.*","USA",x))
-#rep.countries$addresses <- lapply(rep.countries$addresses, function(x) sub("\\ILLINOIS.*","USA",x))
-
-#tmp <- rep.countries %>%
-# mutate(
-#    countries_test = (strsplit(addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T) #%>% 
-#                            #lapply(.,function(x) {word(x,start=-1,sep=" ")}) %>% 
-#                            #map_chr(.,toString) 
-#                          ),
-#         countries_all = (strsplit(addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T) %>% 
-#                            lapply(.,function(x) {word(x,start=-1,sep=" ")}) %>% 
-#                            map_chr(.,toString) 
-#                          ),
-#         first_authors = (word(countries_all,start=1,sep=",")),
-#         #coauthors = countries_all[[-1]],
-#         .after=addresses) 
-
-author.countries.df <- rep.countries %>% 
-  mutate(addresses=sub("\\Florida.*"," USA",addresses)) %>% 
-  mutate(addresses=sub("\\Texas.*"," USA",addresses)) %>% 
-  mutate(addresses=sub("\\FL.*"," USA",addresses)) %>% 
-  mutate(addresses=sub("\\TX.*"," USA",addresses)) %>% 
-  mutate(addresses=sub("\\New York.*"," USA",addresses)) %>% 
-  mutate(addresses=sub("\\ILLINOIS.*"," USA",addresses)) %>% 
-  mutate(countries_all = (strsplit(addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T) %>% 
-                            lapply(.,function(x) {word(x,start=-1,sep=" ")}) %>% 
-                            map_chr(.,toString) 
-                          ),
-                          .after=addresses) %>% 
-  separate(countries_all,into=c("first_authors","coauthors"),sep=",",extra="merge",remove=F)
-```
-
-```{r}
-library(ggplot2)
-library(ggridges)
-```
-
-## Make figure data frames  
-```{r}
-firstauthcountries.df <- author.countries.df %>% 
-  add_count(first_authors,sort=TRUE) %>% #filter(n>1) %>%
-  mutate(first_authors=factor(first_authors,
-                              levels=unique(first_authors),ordered=TRUE)) %>% 
-  ungroup() %>% group_by(year) %>% mutate(papers_peryear=n()) %>% 
-  group_by(year,first_authors,papers_peryear) %>% reframe(author_peryear=n(),n=n) 
-```
-
-```{r}
-# unique countries publishing in the MAR 
-all.countries <- lapply((author.countries.df %>% 
-  separate_wider_delim(.,cols=countries_all,delim=",",names_sep="_",too_few="align_start") %>% select(starts_with("countries"))),unique) %>% c() %>% unlist() %>% trimws(.,which="left") %>% unique()
-```
-
-```{r}
-year.countries.df <-  author.countries.df %>% 
-  separate_wider_delim(.,cols=countries_all, #separate the list of all author countries 
-                       delim=",", #separate by comma
-                       names_sep="_", #delimiter separating names of new columns
-                       too_few="align_start") %>% #if there are uneven numbers, fill the remaining with NA  
-  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% #keep only year, type of paper, language, and country columns  
-  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
-pivot_longer(cols=c(starts_with("countries")), #take all country columns and make each their own row. makes a new column 'name' with the column name each country value came from 
-              #names_to="year",
-              values_drop_na=TRUE
-              ) %>% 
-  mutate(value=trimws(value,which="left")) %>%
-  group_by(year,value,name) %>% 
-  mutate(firstauth=case_when(name=="countries_all_1" ~ n(), #get the count of number of first author papers for each country each year
-                             .default=NA)) %>%
-  ungroup() %>%
-  group_by(year,value) %>% 
-  reframe(countries_peryear = n(), #get the count of number of times an author from each country is published each year
-            firstauth=unique(firstauth)) %>% 
-  group_by(year,value) %>% 
-  filter(n()>1 & !is.na(firstauth) | n()==1) %>% #filter out duplicate rows where a country has a first author 
-  ungroup() %>% 
-  group_by(value) %>% 
-  mutate(total_percountry = sum(countries_peryear,na.rm=TRUE), #get the total number of times a country is in a published paper  
-         total_firstauth = sum(firstauth,na.rm=TRUE)) %>% #get the total number of first author papers for each paper  
-  ungroup() %>%
-  add_count(value,sort=TRUE) %>% 
-  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) #order in descending order by the total number of papers
-```
-
-```{r}
- year.countries.df <- author.countries.df %>% 
-  separate_wider_delim(.,cols=countries_all, #separate the list of all author countries 
-                       delim=",", #separate by comma
-                       names_sep="_", #delimiter separating names of new columns
-                       too_few="align_start") %>% #if there are uneven numbers, fill the remaining with NA  
-  select(c(year,starts_with("Type"),language,starts_with("countr"))) %>% #keep only year, type of paper, language, and country columns  
-  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
-pivot_longer(cols=c(starts_with("countries")), #take all country columns and make each their own row. makes a new column 'name' with the column name each country value came from 
-              #names_to="year",
-              values_drop_na=TRUE
-              ) %>% 
-  mutate(value=trimws(value,which="left"),
-          type=case_when(`Type of Paper` == "Basic/descriptive science" ~ "A", 
-                         `Type of Paper` == "Perspective/opinion" ~ "B", 
-                         `Type of Paper` == "Applied science" ~ "C", 
-                         .default=NA)) %>%
-  group_by(year,value,name) %>% 
-  mutate(firstauth=case_when(name=="countries_all_1" & row_number() == 1 ~ n(), #get the count of number of first author papers for each country each year
-                             .default=NA)) %>%
-  ungroup() %>%
-  group_by(year,value) %>% 
-  mutate(countries_peryear = case_when(
-    row_number() == 1 ~ n(),
-    .default=NA
-  )) %>% distinct() %>%
-  #group_by(year,value) %>% 
-  #filter(n()>1 & !is.na(firstauth) | n()==1) %>% #filter out duplicate rows where a country has a first author 
-  ungroup() %>% 
-  group_by(value) %>% 
-  mutate(total_percountry = case_when( row_number() == 1 ~ sum(countries_peryear,na.rm=TRUE),
-    .default=NA ), #get the total number of times a country is in a published paper  
-         total_firstauth = case_when(row_number() == 1 ~ sum(firstauth,na.rm=TRUE),
-    .default=NA )
-    ) %>% #get the total number of first author papers for each paper  
-  ungroup() %>%
-  arrange(desc(total_percountry)) %>% 
-  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) #order in descending order by the total number of papers
-```
-```{r}
-author.countries.plotting.df <- author.countries.df %>% select(-c("authors","addresses")) %>%
-  mutate(type=case_when(`Type of Paper` == "Basic/descriptive science" ~ "A", 
-                         `Type of Paper` == "Perspective/opinion" ~ "B", 
-                         `Type of Paper` == "Applied science" ~ "C", 
-                         .default=NA),
-         OA=case_when(str_detect(open_access,"old") ~ "Gold",
-                      str_detect(open_access,"ronze") ~ "Bronze",
-                      str_detect(open_access,"reen") ~ "Green",
-                      str_detect(open_access,"iamond|latinum") ~ "Diamond",
-                      str_detect(open_access,"ybrid") ~ "Hybrid",
-                      .default=NA
-                      ),
-         marfirst=case_when(str_detect(first_authors,"Mexico|Belize|Guatemala|Honduras") ~ "Lead",
-                            str_detect(coauthors,"Mexico|Belize|Guatemala|Honduras") ~ "Coauthor", .default=NA),.after="first_authors") 
-```
-
-# Plots  
-```{r}
-paper.marauth <- ggplot(author.countries.plotting.df) + geom_bar(aes(x=year,fill=marfirst),color="black") + scale_fill_manual(name="In collaboration \n with someone in country",values=c("#2a9d8f","#e76f51"),na.value = "grey60")
-
-paper.lang <- ggplot(author.countries.plotting.df) + geom_bar(aes(x=year,fill=language),color="black") + scale_fill_manual(name="Published language",values=c("#89a1ef","#5c8001"),na.value = "grey60")
-
-paper.type <- ggplot(author.countries.plotting.df) + geom_bar(aes(x=year,fill=`Type of Paper`),color="black") + scale_fill_manual(name="Type of research",values=c("#8338ec","#e07a5f","#3d405b"),na.value = "grey60") + guides(fill=guide_legend(nrow=2))
-
-paper.oa <- ggplot(author.countries.plotting.df) + geom_bar(aes(x=year,fill=OA),color="black") + scale_fill_manual(name="Open access status",values=c("#a3a380","#e09f3e","#335c67","#9e2a2b"),na.value = "grey60") + guides(fill=guide_legend(nrow=2))
-
-wrap_plots(paper.marauth,
-           paper.lang,
-           paper.type,
-           paper.oa) + 
-  plot_annotation(tag_levels="A",tag_suffix = ".")  & theme_bw()  + 
-  ggpubr::labs_pubr()  + 
-  theme(text=element_text(size=20),
-        axis.title=element_blank(),
-        legend.position="bottom",
-        panel.grid.major.y = element_line(color="grey80"),
-        line = element_line(linewidth=0.5)
-        )
-
-#ggsave("/Users/lauragivens/Downloads/mismatchvars.png",height=10,width=12)
-```
-
-Number of papers published from a country over time   
-```{r}
-country.authors.dotplot <-  year.countries.df %>% group_by(year,value) %>% summarize(firstauth=sum(firstauth,na.rm=TRUE),countries_peryear=sum(countries_peryear,na.rm=TRUE)) %>% #year.countries.df %>% 
-  ggplot(aes(x=year,y=value,color=firstauth)) + 
-  geom_point(aes(size=countries_peryear),alpha=0.95) + 
-  scale_size_continuous(name="Number of \n authors",range=c(3,10),breaks=c(1,5,10,20,40,55)) +
-  scale_color_gradientn(name="Number of \n first author \n publications",
-                        colors=c("#d2ebf1","#219ebc","#176e83","#023047","#ffb703","#fb9d32","#fb8500")) + 
-  scale_x_continuous(minor_breaks = seq(from=1960,to=2025,by=5)) +
-  theme_bw() + 
-  ggpubr::labs_pubr() +
-  #cowplot::theme_minimal_hgrid() +
-  theme(text=element_text(size=20),
-        axis.title=element_blank(),
-        legend.position="bottom",
-        panel.grid.major.y = element_line(color="grey80")
-        #panel.grid.minor.x = element_line(linetype=2,color="grey")
-        ) + 
-  guides(size=guide_legend(nrow=1,theme=theme(legend.key.size = unit(3, "point")))) +
-  labs(title="Authors in papers published each year",
-       caption="Points without a first author publication are colored in grey")
-
-country.authors.dotplot
-
-#ggsave("/Users/lauragivens/Downloads/roughdraft2.png",country.authors.dotplot,width=20,height=15)
-```
 ```{r}
 country.pal <- c("#2f4b7c",
 "#a05195","#665191","#d45087",
@@ -451,26 +609,6 @@ scales::show_col(country.pal)
 names(country.pal) <- unique(year.countries.df$value)
 ```
 
-```{r}
-year.country.ridgeplot <- ggplot(year.countries.df, aes(x=year,y=value,height=countries_peryear,fill=value)) + 
-  geom_density_ridges2(scale = 8,linewidth=.1,alpha=0.9,stat="identity",na.rm=TRUE) +
-  #theme_ridges()  + 
-  theme_bw() +
-  scale_fill_manual(values=country.pal) + 
-  ggpubr::labs_pubr() +
-  #cowplot::theme_minimal_hgrid() +
-  theme(text=element_text(size=20),
-        axis.title=element_blank(),
-        legend.position="none",
-        panel.grid.major.y = element_line(color="grey80"),
-        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
-        ) + 
-  labs(title="Change in authored papers by year") 
-
-year.country.ridgeplot
-
-#ggsave("/Users/lauragivens/Downloads/roughdraft1.png",year.country.ridgeplot,width=15,height=10)
-```
 
 ```{r}
 year.country.ridgeplot2 <- year.country.ridgeplot +
@@ -491,157 +629,24 @@ patchwork::wrap_plots((country.authors.dotplot2+theme(legend.position="top")+lab
 #ggsave("/Users/lauragivens/Downloads/pubovertime.png",width=20,height=12)
 ```
 
-# Subset countries  
-Number of papers published from a country over time   
-```{r}
-top10 <- year.countries.df %>% arrange(desc(total_percountry)) %>% .$value %>% unique() %>% .[1:10]
-
-top15 <- year.countries.df %>% filter(value != "NA") %>% arrange(desc(total_percountry)) %>% .$value %>% unique() %>% .[1:15]
-```
-```{r}
-subs.country.authors.dotplot <- year.countries.df %>% group_by(year,value) %>% summarize(firstauth=sum(firstauth,na.rm=TRUE),countries_peryear=sum(countries_peryear,na.rm=TRUE)) %>% filter(value%in%top15) %>% filter(!is.na(firstauth) | !is.na(countries_peryear)) %>%
-  ggplot(aes(x=year,y=value,
-             color=ifelse(!is.na(firstauth),firstauth,NA))) + 
-  geom_point(aes(size=ifelse(!is.na(countries_peryear),countries_peryear,NA)),alpha=0.95) + 
-  scale_size_continuous(name="Number of \n authors",range=c(3,10),breaks=c(1,5,10,20,40,55)) +
-  scale_color_gradientn(name="Number of \n first author \n publications",
-                        colors=c("grey","#219ebc","#176e83","#023047","#ffb703","#fb9d32","#fb8500")) + 
-  scale_x_continuous(minor_breaks = seq(from=1960,to=2025,by=5)) +
-  theme_bw() +
-  ggpubr::labs_pubr() +
-  scale_x_continuous(limits=c(1990,2026), expand = c(0,0)) + 
-  theme(legend.position="top")+labs(caption=NULL)  +
-  #cowplot::theme_minimal_hgrid() +
-  theme(text=element_text(size=20),
-        axis.title=element_blank(),
-        panel.grid.major.y = element_line(color="grey80")
-        #panel.grid.minor.x = element_line(linetype=2,color="grey")
-        ) + 
-  guides(size=guide_legend(nrow=1,theme=theme(legend.key.size = unit(3, "point")))) +
-  labs(title="Authors in papers published each year",
-       caption="Points without a first author publication are colored in grey")
-
-subs.year.country.ridgeplot <- year.countries.df %>% filter(value%in%top15) %>% 
-  ggplot( aes(x=year,y=value,height=countries_peryear,fill=value)) + 
-  geom_density_ridges2(scale = 8,linewidth=.1,alpha=0.9,stat="identity",na.rm=TRUE) +
-  #theme_ridges()  + 
-  theme_bw() +
-  scale_fill_manual(values=country.pal) + 
-  ggpubr::labs_pubr()  +
-  scale_x_continuous(limits=c(1990,2026), expand = c(0,0)) +
-  #cowplot::theme_minimal_hgrid() +
-  theme(text=element_text(size=20),
-        axis.title=element_blank(),
-        legend.position="none",
-        panel.grid.major.y = element_line(color="grey80"),
-        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
-        ) + 
-  labs(title="Change in authored papers by year") 
-
-patchwork::wrap_plots(subs.country.authors.dotplot, 
-           subs.year.country.ridgeplot #free(subs.year.country.ridgeplot)
-           )  +
-  plot_layout(widths=c(10,8),design="
-              #B
-              AB
-              AB")  + 
-  plot_annotation(title="Availability of evidence to inform marine conservation management in the Mesoamerican Reef Ecoregion",
-                  tag_levels="A",tag_suffix=".") & theme(text=element_text(size=16),plot.title=element_blank())
-
-#ggsave("/Users/lauragivens/Downloads/pubovertime.subset.png",width=8,height=5)
-```
-
-```{r}
-subs.country.authors.dotplot + theme(plot.title=element_blank(), plot.caption = element_blank())
-
- ggsave("/Users/lauragivens/Downloads/top15.country.authors.dotplot.png",width=10,height=10)
-```
-
-```{r}
-subs.year.country.ridgeplot + theme(plot.title=element_blank(), plot.caption = element_blank())
-
-# ggsave("/Users/lauragivens/Downloads/top15.country.year.dotplot.png",width=8,height=12)
-# ggsave("/Users/lauragivens/Downloads/top15.country.year.dotplot.png",width=15,height=12)
-```
-
-# Analysis  
-```{r}
-year.countries.df$value %>% unique() %>% length()
-```
-
-```{r}
-year.countries.df %>% filter(firstauth>0 & !is.na(firstauth)) %>% .$value %>% unique() %>% length()
-```
-
-Do those super productive countries change if we only look at the last 10 years? How about 5? 
-```{r}
-top10.2015 <- year.countries.df %>% filter(year>2015) %>% group_by(value) %>% mutate(newtotal=sum(countries_peryear,na.rm = TRUE)) %>% arrange(desc(newtotal)) %>% .$value %>% unique() %>% .[1:10]
-
-top10.2020 <- year.countries.df %>% filter(year>2020) %>% group_by(value) %>% mutate(newtotal=sum(countries_peryear,na.rm = TRUE)) %>% arrange(desc(newtotal)) %>% .$value %>% unique() %>% .[1:10]
-
-top10.2015
-top10.2020
-```
-```{r}
-top10
-```
-```{r}
-year.countries.df %>% group_by(year) %>%
-  reframe(rlow=range(countries_peryear,na.rm=TRUE)[1],
-          rhigh=range(countries_peryear,na.rm=TRUE)[2]) %>% ggplot(aes(x=year)) + geom_line(aes(y=rlow)) + geom_line(aes(y=rhigh),color="blue")
-```
-
-
-#### Participation in research  
-```{r}
-participation.df <- author.countries.plotting.df %>% 
-  group_by(year,marfirst) %>% summarize(n=n()) %>% 
-  pivot_wider(names_from="marfirst",values_from="n") %>% 
-  mutate(total=sum(`NA`,Lead,Coauthor,na.rm=TRUE),
-         perc=sum(Lead,Coauthor,na.rm = TRUE)/total
-         ) %>% arrange(desc(year))
-
-participation.df
-```
-```{r}
-participation.df %>% filter(year>2019 & year <2025) %>% .$perc %>% range(.,na.rm=TRUE)
-participation.df %>% filter(year>2019 & year <2025) %>% .$perc %>% mean(.,na.rm=TRUE)
-```
-
-```{r}
-participation.df %>% filter(year<2020 & year>1999 & total>1) %>% .$perc %>% range(.,na.rm=TRUE)
-participation.df %>% filter(year<2020 & year>1999 & total>1) %>% .$perc %>% mean(.,na.rm=TRUE)
-```
-
-```{r}
-participation.df %>% filter(year<2000 & total>1) %>% .$perc %>% range(.,na.rm=TRUE)
-participation.df %>% filter(year<2000 & total>1) %>% .$perc %>% mean(.,na.rm=TRUE)
-```
-
-#### Type of research  
-```{r}
-author.countries.plotting.df %>% group_by(year,`Type of Paper`) %>% 
-  summarize(n=n()) %>% 
-  pivot_wider(names_from=`Type of Paper`,values_from="n") %>% 
-  mutate(total=sum(`NA`,"Basic/descriptive science","Perspective/opinion","Applied science",na.rm=TRUE),
-         perc=sum("Applied science",na.rm = TRUE)/total
-         ) %>% arrange(desc(year))
-```
-
-
 # Maps  
 ```{r,warning=FALSE}
 globe <- map_data("world")
-globe.mar <- full_join(globe,(year.countries.df %>% group_by(value) %>% mutate(firstauth=sum(firstauth,na.rm=TRUE),
-                                                                               ) %>% mutate(region=str_replace_all(value,"_"," "))))
+globe.mar <- full_join(globe,
+                       (year.countries.df %>% 
+                          group_by(value) %>% 
+                          mutate(firstauth=sum(firstauth,na.rm=TRUE),
+                                 region=str_replace_all(value,"_"," ")) 
+                        ))
 
 cons <- country_codes()
 ```
 All countries 
 ```{r}
-ggplot() + geom_polygon(data=globe.mar,aes(x=long,y=lat,group=group,fill=!is.na(value)),color="black") + scale_fill_manual(name="Countries publishing MAR research",values=c("lightgrey","#2a9d8f")) + 
+ggplot() + geom_polygon(data=globe.mar,aes(x=long,y=lat,group=group,fill=!is.na(value)),color="black") +
+  scale_fill_manual(name="Countries publishing MAR research",values=c("lightgrey","#2a9d8f")) + 
   ggpubr::theme_pubclean() +
-  theme(axis.title=element_blank(),axis.text=element_blank(),axis.ticks = element_blank(),legend.position="none") 
+  theme(axis.title=element_blank(),axis.text=element_blank(),axis.ticks = element_blank(),legend.position="none")
 
 #ggsave("/Users/lauragivens/Downloads/mar.map.png",width=8,height=5)
 ```
@@ -659,7 +664,7 @@ ggplot() +
   ggpubr::theme_pubclean() +
   theme(axis.title=element_blank(),axis.text=element_blank(),axis.ticks = element_blank(),legend.position="none") 
 
-ggsave("/Users/lauragivens/Downloads/mar.firstauth.map.png",width=8,height=5)
+#ggsave("/Users/lauragivens/Downloads/mar.firstauth.map.png",width=8,height=5)
 ```
 
 ```{r}
@@ -744,7 +749,7 @@ firstauthcountries.df %>% filter(n>2) %>% ggplot(aes(x=year,y=first_authors,fill
   geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
   theme_ridges() + theme(legend.position="none")
 
-year.countries.df %>% ggplot(aes(x=year,y=value,height=countries_peryear,fill=value)) + 
+year.countries.df %>% ggplot(aes(x=year,y=value,height=total_percountry_peryear,fill=value)) + 
   #geom_density_ridges2(scale = 5,linewidth=1.3,alpha=0.9) +
   geom_ridgeline(scale=1,linewidth=1,alpha=0.6) +
   theme_ridges() + theme(legend.position="none")
