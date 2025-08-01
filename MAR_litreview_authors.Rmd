@@ -72,7 +72,7 @@ _Open access tiers_
 Diamond/Platinum = OA for readers at no cost to authors   
 Gold = final version of article is open access immediately following publication   
 Hybrid = available to subscribers to the journal but also freely available to everyone   
-Green = pre-print/publisher's version can be archived   
+Green = pre-print/publisher's version can be archived; 'self archiving'   
 ```{r updateOA}
 author.countries.df <- author.countries.df %>%
   mutate(OA=case_when(open_access=="NA" ~ "Not Open Access",
@@ -226,6 +226,19 @@ sum(year.countries.df$total_firstauth,na.rm=TRUE)
 
 ## 6. Analysis  
 
+```{r}
+country.pal <- c("#2f4b7c",
+"#a05195","#665191","#d45087",
+"#f95d6a","#ff7c43","#ffa600",
+"#003f5c","#4553c2", "#80b6aa", "#255026", "#49c32f", "#8e0049", "#fd5917", "#14c197", "#265582", "#d98ff4", "#7b038e", "#f75ef0", "#87a9fd", "#2524f9", "#85aa32", "#633d30", "#f5943b", "#a51409", "#fd8992", "#ff0087", "#c6a2ac",
+"#78b4c6", "#016876", "#5faf66", "#1f3ca6", "#e689eb", "#841ea4", "#9a95e5", "#5b3c5e", "#f642d0", "#0b5313", "#f85582", "#943105", "#f9905b", "#972554", "#0ec61c", "#e8250c", "#55450a", "#cba662", "#270fe2","#e29578","#83c5be","#ffddd2","#9c89b8","#ffbe0b"
+  )
+
+scales::show_col(country.pal)
+
+names(country.pal) <- unique(year.countries.df$value)
+```
+
 ### Overall numbers  
 *How many papers did we start with/end with?*  
 ```{r}
@@ -353,6 +366,61 @@ firstauthcountries.df %>% filter(!duplicated(first_authors)) %>% arrange(desc(To
 #double check that math is right: does TotalPapersCountry add up to the total number of papers? 
 #firstauthcountries.df %>% filter(!duplicated(first_authors)) %>% .$TotalPapersCountry %>% sum() #totals 309
 ```
+  
+### Figure: How many include authors from the region?    
+In the previous figure we saw how the number of first author publications has changed, but what about overall?  
+```{r}
+paper.marauth <- ggplot(author.countries.df) + 
+  geom_bar(aes(x=year,fill=marfirst),color="black") + 
+ # viridis::scale_fill_viridis(option="plasma",discrete=TRUE,end=0.9)
+  scale_fill_manual(name="MAR authorship status",
+                    values=c("#2a9d8f","#e76f51","grey60"),
+                    na.value = "grey60")
+
+paper.marauth
+```
+
+#### Analysis: Local authorship  
+```{r}
+participation.df <- author.countries.df %>% 
+  group_by(year,marfirst) %>% 
+  summarize(n=n()) %>% 
+  pivot_wider(names_from="marfirst",values_from="n") %>% 
+  mutate(total=sum(`Not author`,Lead,Coauthor,na.rm=TRUE),
+         perc=sum(Lead,Coauthor,na.rm = TRUE)/total,
+         leadperc=sum(Lead,na.rm=TRUE)/total
+         ) %>% arrange(desc(year))
+
+participation.df
+```
+Prior to 2006, only 1-2 papers focusing on the MAR were published each year   
+```{r}
+participation.df %>% filter(year<2006 & total>0) %>% .$total %>% range()
+```
+Prior to 2000, only 1-2 papers focusing on the MAR were published each year   
+```{r}
+participation.df %>% filter(year<2000 & total>0) %>% .$total %>% range()
+```
+15% of those papers included someone from within the region in the authorship list.   
+```{r}
+participation.df %>% filter(year<2000 & total>0) %>% .$perc %>% mean()
+```
+Publishing began to increase after 2006, breaking the double digits  
+```{r}
+participation.df %>% filter(year>2000 & year<2011)
+```
+```{r}
+participation.df %>% filter(year>2006 & year<2014) %>% .$perc %>% mean(.,na.rm=TRUE)
+participation.df %>% filter(year>2006 & year<2014) %>% .$leadperc %>% mean(.,na.rm=TRUE)
+```
+
+In the last ten years, 49.74% of papers have included someone from within country, 42.54% of which were led by the first author.   
+```{r}
+participation.df %>% filter(year>2014 & year <2025) %>% .$total %>% range(.,na.rm=TRUE)
+participation.df %>% filter(year>2014 & year <2025) %>% .$perc %>% mean(.,na.rm=TRUE)
+
+participation.df %>% filter(year>2014 & year <2025) %>% .$leadperc %>% mean(.,na.rm=TRUE)
+```
 
 # PubFig: Country authorship over time   
 Figure showing publication patterns for the 15 most productive countries.  
@@ -418,64 +486,6 @@ country.authorship.wrapplot
 ```
 Over time, authors from more countries were participating in research focused in the MAR and the number of publications per year increases as well. Authors from a total of 43 countries were involved in publishing research set in the MAR. Of those, 29 countries had at least one first author publication. Authors from Mexico and the United States were the most productive, with 107 and 108 first author publications, respectively. 
 
-### How many include authors from the region?  
-In the previous figure we saw how the number of first author publications has changed, but what about overall?  
-
-#### Figure  
-```{r}
-paper.marauth <- ggplot(author.countries.df) + 
-  geom_bar(aes(x=year,fill=marfirst),color="black") + 
- # viridis::scale_fill_viridis(option="plasma",discrete=TRUE,end=0.9)
-  scale_fill_manual(name="MAR authorship status",
-                    values=c("#2a9d8f","#e76f51","grey60"),
-                    na.value = "grey60")
-
-paper.marauth
-```
-
-#### Analysis  
-```{r}
-participation.df <- author.countries.df %>% 
-  group_by(year,marfirst) %>% 
-  summarize(n=n()) %>% 
-  pivot_wider(names_from="marfirst",values_from="n") %>% 
-  mutate(total=sum(`Not author`,Lead,Coauthor,na.rm=TRUE),
-         perc=sum(Lead,Coauthor,na.rm = TRUE)/total,
-         leadperc=sum(Lead,na.rm=TRUE)/total
-         ) %>% arrange(desc(year))
-
-participation.df
-```
-Prior to 2006, only 1-2 papers focusing on the MAR were published each year   
-```{r}
-participation.df %>% filter(year<2006 & total>0) %>% .$total %>% range()
-```
-Prior to 2000, only 1-2 papers focusing on the MAR were published each year   
-```{r}
-participation.df %>% filter(year<2000 & total>0) %>% .$total %>% range()
-```
-15% of those papers included someone from within the region in the authorship list.   
-```{r}
-participation.df %>% filter(year<2000 & total>0) %>% .$perc %>% mean()
-```
-Publishing began to increase after 2006, breaking the double digits  
-```{r}
-participation.df %>% filter(year>2000 & year<2011)
-```
-```{r}
-participation.df %>% filter(year>2006 & year<2014) %>% .$perc %>% mean(.,na.rm=TRUE)
-participation.df %>% filter(year>2006 & year<2014) %>% .$leadperc %>% mean(.,na.rm=TRUE)
-```
-
-In the last ten years, 49.74% of papers have included someone from within country, 42.54% of which were led by the first author.   
-```{r}
-participation.df %>% filter(year>2014 & year <2025) %>% .$total %>% range(.,na.rm=TRUE)
-participation.df %>% filter(year>2014 & year <2025) %>% .$perc %>% mean(.,na.rm=TRUE)
-
-participation.df %>% filter(year>2014 & year <2025) %>% .$leadperc %>% mean(.,na.rm=TRUE)
-```
-
-
 ### Figure: Papers over time    
 Look at the type of paper (we're assuming applied science papers are more directly usable by managers) and accessibility (open access status) over time  
 ```{r}
@@ -510,6 +520,8 @@ paper.oa <- ggplot(author.countries.df) +
                     values=c("#335c97","#e09f3e","#a3b369","#9e2a2b","grey50"),
                     na.value = "grey60") + guides(fill=guide_legend(nrow=2))
 ```
+
+# PubFig: Accessibility  
 ```{r accessplot}
 accessibility.plot <- wrap_plots(paper.type,paper.oa) + 
   plot_annotation(tag_levels="A",tag_suffix = ".") & theme_bw() + 
@@ -524,27 +536,76 @@ accessibility.plot <- wrap_plots(paper.type,paper.oa) +
 accessibility.plot
 #ggsave(filename="/Users/lauragivens/Downloads/MAR_litaccess.plot.png",plot=accessibility.plot,height=5,width=15,bg="white")
 ```
-#### Analysis  
-```{r accessplot_stats}
 
+#### Analysis: Percent access    
+
+##### Percent basic vs percent applied  
+```{r}
+applied.df <- author.countries.df %>% group_by(year,`Type of Paper`) %>% 
+  summarize(n=n()) %>% 
+  mutate(`Type of Paper`=case_when(is.na(`Type of Paper`) ~ "Unknown",
+                                   .default=`Type of Paper`)) %>% 
+  mutate(across(where(is.character), str_replace_all, replacement="_", pattern=" ")) %>% 
+  pivot_wider(names_from=`Type of Paper`,values_from="n",values_fill=0) %>% 
+  column_to_rownames(.,"year") %>% 
+  mutate(total=rowSums(.,na.rm=TRUE),
+         perc=round(Applied_science/total,digits=4)
+         ) 
+```
+```{r}
+applied.df
+```
+```{r}
+applied.df %>% filter(rownames(.)>2014) %>% .$perc %>% mean()
 ```
 
-
-### Type of research  
-### Usability of literature over time   
-
-
+##### Percent open access  
+```{r}
+oa.df <- author.countries.df %>% group_by(year, OA) %>% 
+  summarize(n=n())%>% 
+  pivot_wider(names_from=OA,values_from="n",values_fill=0) %>% 
+  column_to_rownames(.,"year") %>% 
+  mutate(total=rowSums(.,na.rm=TRUE),
+         year=rownames(.)) %>% rowwise() %>% 
+        mutate( perc=round(sum(Bronze,Gold,Green,Hybrid,na.rm=TRUE)/total,digits=4)
+  ) %>% column_to_rownames(.,"year") 
+```
+```{r}
+oa.df
+```
+```{r}
+oa.df %>% filter(rownames(.)>2015) %>% .$perc %>% mean()
+```
 
 ```{r}
-author.countries.df %>% group_by(year,`Type of Paper`) %>% 
-  summarize(n=n()) %>% 
-  pivot_wider(names_from=`Type of Paper`,values_from="n") %>% 
-  mutate(total=sum(`NA`,"Basic/descriptive science","Perspective/opinion","Applied science",na.rm=TRUE),
-         perc=sum("Applied science",na.rm = TRUE)/total
-         ) %>% arrange(desc(year))
+arrange(oa.df,desc(perc))[1:10,]
 ```
 
+##### Percent English  
+```{r}
+lang.df <- author.countries.df %>% group_by(year,language) %>% 
+  summarize(n=n()) %>% 
+  pivot_wider(names_from=language,values_from="n",values_fill=0) %>% 
+  column_to_rownames(.,"year") %>% 
+  mutate(total=rowSums(.,na.rm=TRUE),
+         perc=round(Spanish/total,digits=4)
+         ) 
+```
+```{r}
+lang.df
+```
+```{r}
+mean(lang.df$perc)
+```
 
+Across all years with more than one published paper, only 3.42% of papers were published in Spanish  
+```{r}
+lang.df %>% filter(total>1) %>% .$perc %>% mean()
+```
+In the last decade, only 1.36% of papers were published in Spanish    
+```{r}
+lang.df %>% filter(rownames(.) > 2014) %>% .$perc %>% mean()
+```
 
 # ~~~~~
 ```{r}
@@ -595,20 +656,6 @@ countries %>% select(c(authors,addresses)) %>% mutate(newauth=str_count(authors,
                       newadd=str_count(addresses,pattern=";"),
                       same=(newauth==newadd)) %>% filter(same==FALSE) 
 ```
-
-```{r}
-country.pal <- c("#2f4b7c",
-"#a05195","#665191","#d45087",
-"#f95d6a","#ff7c43","#ffa600",
-"#003f5c","#4553c2", "#80b6aa", "#255026", "#49c32f", "#8e0049", "#fd5917", "#14c197", "#265582", "#d98ff4", "#7b038e", "#f75ef0", "#87a9fd", "#2524f9", "#85aa32", "#633d30", "#f5943b", "#a51409", "#fd8992", "#ff0087", "#c6a2ac",
-"#78b4c6", "#016876", "#5faf66", "#1f3ca6", "#e689eb", "#841ea4", "#9a95e5", "#5b3c5e", "#f642d0", "#0b5313", "#f85582", "#943105", "#f9905b", "#972554", "#0ec61c", "#e8250c", "#55450a", "#cba662", "#270fe2","#e29578","#83c5be","#ffddd2","#9c89b8","#ffbe0b"
-  )
-
-scales::show_col(country.pal)
-
-names(country.pal) <- unique(year.countries.df$value)
-```
-
 
 ```{r}
 year.country.ridgeplot2 <- year.country.ridgeplot +
