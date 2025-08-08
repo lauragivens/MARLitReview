@@ -929,6 +929,10 @@ geo.df %>% group_by(value,Focus) %>%
 
 
 ## Analysis: Geography  
+Map?  
+
+## Analysis: Fisheries  
+possible to loop into / include in ecosystem paper? Call it major themes or something?
 
 # ~~~~~
 ```{r}
@@ -1001,6 +1005,7 @@ patchwork::wrap_plots((country.authors.dotplot2+theme(legend.position="top")+lab
 
 # Maps  
 ```{r,warning=FALSE}
+library(geodata)
 globe <- map_data("world")
 globe.mar <- full_join(globe,
                        (year.countries.df %>% 
@@ -1009,8 +1014,65 @@ globe.mar <- full_join(globe,
                                  region=str_replace_all(value,"_"," ")) 
                         ))
 
-cons <- country_codes()
+cons <- geodata::country_codes()
 ```
+
+```{r,warning=FALSE,message=FALSE}
+mar <- map_data("world",region=c("Mexico","Belize","Guatemala","Honduras",
+                                 "Nicaragua","Costa Rica","Panama",
+                                 #"Cuba","Haiti",
+                                 "Venezuela","Colombia"#,
+                                 #"Dominican Republic",
+                                 #"Puerto Rico","Jamaica",
+                                 #"Trinidad and Tobago",
+                                 #"Cayman Islands",
+                                 #"Virgin Islands",
+                                 #"Barbados"
+                                 ))
+
+
+# Compute the centroid as the mean longitude and lattitude
+# Used as label coordinate for country's names
+mar.labs <- mar %>%
+  group_by(region) %>%
+  summarise(
+    long = case_when(
+      region%in%c("Guatemala","Mexico","Honduras","Belize") ~ mean(long)),
+      lat = case_when( region%in%c("Guatemala","Mexico","Honduras","Belize")~mean(lat))
+    )
+
+cols <- viridis::viridis(4)
+names(cols) <- c("Belize","Honduras","Mexico","Guatemala")
+scales::show_col(cols)
+
+ggplot(mar,aes(x=long,y=lat)) + geom_polygon(aes(group=group,fill=ifelse(region%in%c("Guatemala","Mexico","Honduras","Belize"),region,NA)),color="black")  +
+  #geom_text(aes(label = region), data = mar.labs,  size = 3, hjust = 0.5)+
+  #scale_fill_viridis_d() +
+  scale_fill_manual(values=cols) +
+  theme_void() +
+  theme(legend.position = "none")
+
+#ggsave("/Users/lauragivens/Downloads/map.png",width=10,height=7)
+```
+```{r}
+geo.df %>% group_by(value) %>% 
+  select(-c(firstauth,n)) %>% 
+  group_by(value,Focus) %>% 
+  reframe(n=sum(focus_peryear)) %>% 
+  filter(value=="Belize" | value == "Honduras" | value=="Guatemala" | value=="Mexico") %>%
+  group_by(value) %>% 
+  mutate(frac=n/sum(n)) %>%
+  ggplot(aes(group=Focus,x="",y=frac,fill=Focus)) + 
+  geom_bar(stat="identity",width=1,color="black") + 
+  coord_polar("y",start=0) + 
+  facet_wrap(~value) + 
+  scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
+  theme_void() 
+
+#ggsave("/Users/lauragivens/Downloads/piechrt.png",bg="transparent")
+```
+
+
 All countries 
 ```{r}
 ggplot() + geom_polygon(data=globe.mar,aes(x=long,y=lat,group=group,fill=!is.na(value)),color="black") +
