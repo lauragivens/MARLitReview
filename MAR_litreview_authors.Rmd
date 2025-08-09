@@ -748,9 +748,10 @@ pivot_longer(eco.df,cols=starts_with("FocusGeo")) %>%
 ```{r}
 geo.df <- eco.df %>% 
   select(c(year,starts_with("countr"), #keep all the country affiliations of the authors  
-           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`) #keep the ecosystem topics 
+           starts_with("Focus"),
+           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`) #keep the ecosystem topics 
          ) %>% 
-  pivot_longer(cols=c(GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`)) %>% #collapse all of the ecosystem focus options into one column  
+  pivot_longer(cols=c(GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`)) %>% #collapse all of the ecosystem focus options into one column  
   mutate(value=case_when(value=="Unsure - flag to review later" ~ NA, #change unsures to NA
                          value=="No" ~ NA, #change No to NA 
                          .default=value),
@@ -758,6 +759,7 @@ geo.df <- eco.df %>%
                         name=="Focus on Seagrass" ~ "Seagrass",
                         name=="Focus on Coral" ~ "Coral",
                         name=="Focus on Mangrove" ~ "Mangrove",
+                        name=="Focus on  fish/fisheries" ~ "Fisheries",
                         .default=name))  %>% 
   rename("Focus"="name", 
          "FocusY"="value") %>% 
@@ -814,8 +816,8 @@ eco.table <- geo.df %>% group_by(value,Focus) %>%
   flextable::set_header_labels("Geomorphology"="Geo.") %>%
   flextable::theme_zebra() %>%
   #flextable::set_table_properties(layout="autofit") %>% 
-  flextable::fontsize(size=20,part="all") %>% hline(i=14) %>% vline(j=5) %>%
-  flextable::bold(i=15) %>% flextable::italic(j=6)
+  flextable::fontsize(size=20,part="all") %>% hline(i=15) %>% vline(j=6) %>%
+  flextable::bold(i=16) %>% flextable::italic(j=7)
 ```
 
 ```{r}
@@ -854,16 +856,16 @@ wrap_plots(country.ecosystem.plot+labs(title=NULL),
 #ggsave("/Users/lauragivens/Downloads/paperfocus.png",width=12,height=8,bg="white")
 ```
 ```{r}
-wrap_plots(country.ecosystem.plot+labs(title=NULL),
+wrap_plots(country.ecosystem.plot+labs(title=NULL)+theme(axis.text.x = element_text(angle=-45,vjust=0,hjust=0.1)),
            plot_spacer(),
     gen_grob(eco.table, fit = "width"),
     gen_grob(geo.table, fit = "width")
   ) + plot_layout(design="
                   ABC
                   ABC
-                  ABD",widths=c(6,0.5,4,4)) 
+                  ABD",widths=c(8,0.5,4,4)) 
 
-#ggsave("/Users/lauragivens/Downloads/paperfocus.2.png",width=12,height=8,bg="white")
+#ggsave("/Users/lauragivens/Downloads/paperfocus.2.png",width=14,height=8,bg="white")
 ```
 
 ## Analysis: Ecosystem    
@@ -1071,7 +1073,6 @@ geo.df %>% group_by(value) %>%
 
 #ggsave("/Users/lauragivens/Downloads/piechrt.png",bg="transparent")
 ```
-
 
 All countries 
 ```{r}
