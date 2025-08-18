@@ -263,239 +263,7 @@ geo.df <- eco.df %>%
 ```
 
 ```{r}
-#data frame of geographic focus + number of papers for each area  
-df.1 <- eco.df %>% 
-  select(starts_with("FocusGeo")
-           ) %>% 
-  
-  #pivot_longer takes us from 317 rows (1 per paper)
-  #goes to 351 (317 + 24 rows with a value in FocusGeography_2 + 10 rows with a value in FocusGeography_3)
-  
-  pivot_longer(cols=c(starts_with("FocusGeo")), #give each geographic focus its own row (so papers occurring in multiple countries will have multiple lines) 
-               values_drop_na = TRUE) %>% 
-  rename("GeographicFocus"=value) %>% 
-  select(-name) %>% #remove column of old column names for "focusgeography"
-
-  mutate(GeographicFocus=str_trim(GeographicFocus,side="both")) %>% #remove leading and trailing whitespace
-  ungroup() %>% group_by(GeographicFocus) %>% 
-  mutate(N_GeographicFocus=n()) %>% #count number of studies taking place on each region in the MAR
-  distinct()
-
-#need a df for geographic focus that also takes into account topical focus  
-
-
-#need a df for topical focus that also takes into account year and country
-
-df.2 <- eco.df %>%
-  select(c(year,starts_with("countr"), #keep all the country affiliations of the authors  
-           #starts_with("Focus"),
-           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`) 
-         ) %>% 
-  pivot_longer(cols=c(GeoFocus,`Focus on Mangrove`, #put all topic focus options into one column 
-                      `Focus on Coral`,`Focus on Seagrass`,
-                      `Focus on  fish/fisheries`),
-               values_drop_na = TRUE) %>% #do not fill in missing values with NA  
-  
-  #combine all ambiguous and No answers for topic focus to NA for later analysis
-  
-  mutate(value=case_when(value=="Unsure - flag to review later" ~ NA, #change unsures to NA
-                         value=="No" ~ NA, #change No to NA 
-                         str_detect(value,"N/A") ~ NA, #change N/A (not focused on fisheries) to NA 
-                         .default=value),
-         name=case_when(name=="GeoFocus" ~ "Geomorphology",
-                        name=="Focus on Seagrass" ~ "Seagrass",
-                        name=="Focus on Coral" ~ "Coral",
-                        name=="Focus on Mangrove" ~ "Mangrove",
-                        name=="Focus on  fish/fisheries" ~ "Fisheries",
-                        .default=name))  %>% 
-  rename("TopicFocus"="name", 
-         "MentionTopicFocus"="value") %>% 
-group_by(year,TopicFocus,MentionTopicFocus) %>% 
-  mutate(focus_peryear = case_when(MentionTopicFocus=="Yes" ~ n(),
-                                   MentionTopicFocus=="No" ~ NA)) 
-
-
-df.3 <- eco.df %>% 
-  select(c(year,starts_with("countr"), #keep all the country affiliations of the authors  
-           starts_with("Focus"),
-           starts_with("MP"),
-           Policy,Management,
-           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`) 
-         ) %>% 
-  
-  pivot_longer(cols=c(starts_with("countr")), #collapse all of the countries into one column  
-               values_drop_na = TRUE) %>% #drop only rows that will have NA in the value column (these were introduced by previous df manipulations to make data tabular and not relevant to the analysis)
-  
-  group_by(year,value,name) %>% #group by year, country, and authorship position
- # mutate(firstauth=case_when(name=="countries_all_1" & row_number() == 1 ~ n(), #get the count of number of first author papers for each country each year
-  #                           .default=NA),
-         mutate(
-           value=str_trim(value,side="both")) %>%
-  ungroup() %>%
-  
-  group_by(year,value,TopicFocus,MentionTopicFocus) %>% 
-  mutate(focus_peryear = case_when(MentionTopicFocus=="Yes" ~ n(),
-                                   MentionTopicFocus=="No" ~ NA)) %>%
-  select(-c(name,MentionTopicFocus)) %>%
-  distinct() %>% 
-  ungroup() %>% group_by(value) %>% 
-  mutate(n=n()) %>% #sum the total number of times a country appears in the list
-  #filter(n>1) %>%
-  arrange(n) %>% 
-  mutate(value=factor(value,levels=unique(.$value),ordered=TRUE)) 
-```
-
-```{r}
-eco.df %>% 
-  select(c(`Paper #`,#year,#starts_with("countr"), #keep all the country affiliations of the authors  
-           starts_with("MP"),
-           Policy,Management,
-           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`), 
-           starts_with("Focus")
-         ) %>% 
-rename("PaperNum"=`Paper #`) %>%
-  mutate(Num=1:n(),.after=PaperNum) %>%
-# 1 row/paper
-# 1 column/country
-# 1 column/geographic focus
-# 1 column/topical focus
-# 1 column/MPA,MP,Policy,Management
-
-# goal is a df that we can use for the pie chart  
-  # num of papers that are based in each region, whether they discuss fisheries, ecosystems, or management 
-  # step 1: make one row per regional focus  
-  
-  pivot_longer(cols=c(starts_with("FocusGeo")), #give each geographic focus its own row (so papers occurring in multiple countries will have multiple lines) 
-               values_drop_na = TRUE) %>% 
-  rename("GeographicFocus"=value) %>% 
-  select(-name) %>% #remove column of old column names for "focusgeography"
-
-  mutate(GeographicFocus=str_trim(GeographicFocus,side="both")) %>% #remove leading and trailing whitespace
-  ungroup() %>% group_by(GeographicFocus) %>% 
-  mutate(N_GeographicFocus=n()) %>% #count number of studies taking place on each region in the MAR
-  
-  
-  
-  
-  
-  # step 2: combine all policy-related/adjacent options
-  pivot_longer(cols=c(MPA,MP,Policy,Management),
-               values_drop_na=TRUE) %>% 
-  mutate(value=case_when(str_detect(value,"No") ~ "No",
-                         str_detect(value,"ecommendati") ~ "No",
-                         str_detect(value,"focus") ~ "Yes",
-                         str_detect(value,"only") ~ "No",
-                         .default=value
-                                    )) %>% 
-  ungroup() %>% group_by(GeographicFocus) %>% 
-  
-  mutate(Policy=case_when(value=="Yes" ~ "Yes",.default=NA),
-        N_policy=sum(!is.na(Policy)),
-         .after=N_GeographicFocus) %>% 
-  select(-c(value,name)) %>%
-  filter(!duplicated(Num)) %>% 
-  
-  
-  
-  
-  
-  #step 3: select ecosystem topics  
-  pivot_longer(cols=c(GeoFocus,
-                      "Focus on Mangrove","Focus on Seagrass",
-                      "Focus on Coral","Focus on Other Ecosystem",
-                      `Focus on  fish/fisheries`
-                      )
-               ) %>% 
-  mutate(
-  value=case_when(str_detect(value,"No") ~ NA, #change No to NA; should also catch "Not talked about"
-                  str_detect(value,"N/A") ~ NA, #change N/A (not focused on fisheries) to NA 
-                  
-                  #Yes categories  
-                  str_detect(value,"ocus") ~ "Yes", #should include "yes - focus on fisheries","Major focus", and "focus on fish but not necessarily commercial"
-                  str_detect(value,"Yes") ~ "Yes",
-                  
-                  str_detect(value,"includes recommendation") ~ "Fisheries adjacent",
-                  str_detect(value,"Talked about") ~ "Fisheries adjacent", #change framing answers to NA
-                  
-                         .default=value),
-         name=case_when(name=="GeoFocus" ~ "Geomorphology",
-                        str_detect(name,"eagrass") ~ "Seagrass",
-                         str_detect(name,"oral")  ~ "Coral",
-                         str_detect(name,"angrove")  ~ "Mangrove",
-                         str_detect(name,"ish")  ~ "Fisheries",
-                         str_detect(name,"Other Ecosystem") ~ "Other ecosystem",
-                        .default=name) 
-  ) %>%
-  rename("Topic"="name") %>%
-  group_by(GeographicFocus,Topic) %>% 
-  mutate(#Topic=name,
-         N_topic=sum(!is.na(value)),
-         .after=Topic) %>% ungroup() %>%
-  select(-value) %>%
-  #filter(!duplicated(Num)) %>%  
-  
-  #select(-year) %>%
-#distinct() %>% 
- # group_by(GeographicFocus,Topic) %>% mutate(n=n()) %>% ungroup() %>% group_by(GeographicFocus) %>% mutate(total=n())
-
-  
-#step 4: human systems/human element  
-pivot_longer(cols=c(starts_with("Focus on")),values_drop_na = TRUE) %>% 
-mutate(value=case_when(value=="Yes" ~ "Yes",.default=NA),
-       name=case_when( str_detect(name,"ender") ~ "Gender",
-                         str_detect(name,"ngage") ~ "Community",
-                         str_detect(name,"nowledge") ~ "Traditional knowledge",
-                         str_detect(name,"voluntourism") ~ "Alternative livelihoods",
-                         str_detect(name,"liveli") ~ "Alternative livelihoods",
-                         str_detect(name,"takeholder") ~ "Community",
-                         #str_detect(name,"ender") ~ "Community",
-                         #str_detect(name,"ngage") ~ "Community",
-                         #str_detect(name,"nowledge") ~ "Community",
-                         #str_detect(name,"voluntourism") ~ "Community",
-                         #str_detect(name,"liveli") ~ "Community",
-                         #str_detect(name,"takeholder") ~ "Community",
-  .default = name
-  )) %>% 
-  rename("Human"="name") %>% 
-  group_by(GeographicFocus,Human) %>% 
-  mutate(N_human=sum(!is.na(value))) %>%
-  
-  
-  
-  
-  
-  select(-c(PaperNum,Num,value)) %>% distinct() %>% 
-  pivot_wider(names_from=c(Human),
-              values_from=c(N_human)
-              ) %>%
-  pivot_wider(names_from=c(Topic),
-              values_from=c(N_topic)
-              ) %>%
-  filter(!is.na(Policy)) %>%
-  select(-Policy) %>%
-rename("Policy"="N_policy") %>%
-  t() %>%
-View()
-
-
-
-
-group_by(GeographicFocus,Topic,value) %>% 
-  reframe(n=sum(is.na(value)==FALSE)) %>% 
-  filter(n>0) %>%
-  #filter(value=="Belize" | value == "Honduras" | value=="Guatemala" | value=="Mexico") %>%
-  group_by(GeographicFocus) %>% 
-  mutate(frac=n/sum(n)) %>%
-  ggplot(aes(group=Topic,x="",y=frac,fill=Topic)) + 
-  geom_bar(stat="identity",width=1,color="black") + 
-  coord_polar("y",start=0) + 
-  facet_wrap(~GeographicFocus) + 
-  scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
-  theme_void() 
-```
-
-```{r}
-eco.df %>% 
+geo.df2 <- eco.df %>% 
   select(c(`Paper #`,#year,#starts_with("countr"), #keep all the country affiliations of the authors  
            starts_with("MP"),
            Policy,Management,
@@ -534,25 +302,30 @@ rename("PaperNum"=`Paper #`) %>%
                          str_detect(Topic_all,"angrove")  ~ "Mangroves",
                          str_detect(Topic_all,"ish")  ~ "Fish and Fisheries",
                          str_detect(Topic_all,"Other Ecosystem") ~ "Other Ecosystems",
-                        str_detect(Topic_all,"ender") ~ "Gender",
-                         str_detect(Topic_all,"ngage") ~ "Community Engagement",
-                         str_detect(Topic_all,"nowledge") ~ "Traditional knowledge",
-                         str_detect(Topic_all,"voluntourism") ~ "Alternative livelihoods",
-                         str_detect(Topic_all,"liveli") ~ "Alternative livelihoods",
-                         str_detect(Topic_all,"takeholder") ~ "Community Engagement",
+                        
+                        str_detect(Topic_all,"ender") ~ "Community-based",
+                         str_detect(Topic_all,"ngage") ~ "Community-based",
+                         str_detect(Topic_all,"nowledge") ~ "Community-based",
+                         str_detect(Topic_all,"voluntourism") ~ "Community-based",
+                         str_detect(Topic_all,"liveli") ~ "Community-based",
+                         str_detect(Topic_all,"takeholder") ~ "Community-based",
+                        
+                        #str_detect(Topic_all,"ender") ~ "Gender",
+                        # str_detect(Topic_all,"ngage") ~ "Community Engagement",
+                        # str_detect(Topic_all,"nowledge") ~ "Traditional knowledge",
+                        # str_detect(Topic_all,"voluntourism") ~ "Alternative livelihoods",
+                        # str_detect(Topic_all,"liveli") ~ "Alternative livelihoods",
+                        # str_detect(Topic_all,"takeholder") ~ "Community Engagement",
+                        
                              .default=Topic_all)) %>%
-  group_by(GeographicFocus,Topic_new) %>% 
-  reframe(Topic_new_num=sum(Topic_all_num)) %>%
-  
-  filter(GeographicFocus=="Belize" | GeographicFocus == "Honduras" | GeographicFocus=="Guatemala" | GeographicFocus=="Mexico") %>%
-  group_by(GeographicFocus) %>% 
-  mutate(frac=Topic_new_num/sum(Topic_new_num)) %>%
-  ggplot(aes(group=Topic_new,x="",y=frac,fill=Topic_new)) + 
-  geom_bar(stat="identity",width=1,color="black") + 
-  coord_polar("y",start=0) + 
-  facet_wrap(~GeographicFocus) + 
-  scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
-  theme_void() 
+  mutate(Topic_new=factor(Topic_new,
+                          levels=c("Fish and Fisheries",
+                                   "Coral Reefs","Other Ecosystems",
+                                   "Mangroves",
+                                   "Seagrass",
+                                   "Geophysical",
+                                   "Policy",
+                                   "Community-based"))) 
 ```
 
 
@@ -1175,21 +948,19 @@ ggplot(mar,aes(x=long,y=lat)) + geom_polygon(aes(group=group,fill=ifelse(region%
 #ggsave("Figures/MARcountries_map.png",width=10,height=7)
 ```
 ```{r}
-geo.df %>% group_by(value) %>% 
-  select(-c(firstauth,n)) %>% 
-  group_by(value,Focus) %>% 
-  reframe(n=sum(focus_peryear)) %>% 
-  filter(value=="Belize" | value == "Honduras" | value=="Guatemala" | value=="Mexico") %>%
-  group_by(value) %>% 
-  mutate(frac=n/sum(n)) %>%
-  ggplot(aes(group=Focus,x="",y=frac,fill=Focus)) + 
+geo.df2 %>%
+  group_by(GeographicFocus,Topic_new) %>% 
+  reframe(Topic_new_num=sum(Topic_all_num)) %>%
+  
+  filter(GeographicFocus=="Belize" | GeographicFocus == "Honduras" | GeographicFocus=="Guatemala" | GeographicFocus=="Mexico") %>%
+  group_by(GeographicFocus) %>% 
+  mutate(frac=Topic_new_num/sum(Topic_new_num)) %>%
+  ggplot(aes(group=Topic_new,x="",y=frac,fill=Topic_new)) + 
   geom_bar(stat="identity",width=1,color="black") + 
   coord_polar("y",start=0) + 
-  facet_wrap(~value) + 
+  facet_wrap(~GeographicFocus) + 
   scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
-  theme_void() 
-
-#ggsave("Figures/MARcountries_focuspiechrt.png",bg="transparent")
+  theme_void() #ggsave("Figures/MARcountries_focuspiechrt.png",bg="transparent")
 ```
 
 # Session Info  
