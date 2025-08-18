@@ -1,0 +1,1199 @@
+---
+title: "Lessons Learned for Evidence-Based Marine Conservation: A 30-Year Perspective of the Mesoamerican Reef Ecoregion"  
+subtitle: "Author and topic analysis"
+author: "Laura Givens"
+date: "2025-08-14"
+output: html_document
+---
+```{r,message=FALSE}
+library(readxl)
+library(readr)
+library(stringr)
+library(ggplot2)
+library(ggridges)
+library(tidyverse)
+library(patchwork)
+library(flextable)
+```
+
+# 1. Download MAR Literature Review - Spreadsheet (final version: 14 Aug 2025)  
+
+# 2. Read into R  
+There is one line per paper; each line is made up of a list of all coauthor institutions 
+```{r load,message=FALSE}
+spdsht <- read_xlsx("/Users/lauragivens/Downloads/MAR\ Literature\ Review\ -\ Spreadsheet_Final.xlsx",sheet = "ReviewSummary",col_names = TRUE,skip=2)
+```
+
+# 3. Subset spreadsheet to only papers that were identified as relevant  
+```{r subset}
+rel.spdsht <- spdsht %>% filter(str_detect(`Relevant to the manuscript?`,"Yes"))
+```
+
+# 4. Extract author countries from given addresses and split into first/coauthors  
+_4a. Name repair_  
+We remove the spaces in any of the country names so they aren't split later  
+```{r remspaces}
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses, "USA|US|U.S.A.|United States|United States of America", " USA")  
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "Britain|Great Britain", "Great_Britain") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "United Kingdom|UK", "UK") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "New Caledonia", "New_Caledonia") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "Hong Kong", "Hong_Kong") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "Costa Rica", "Costa_Rica") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "South Africa", "South_Africa") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "United Arab Emirates", "UAE") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "South Korea", "South_Korea") 
+rel.spdsht$addresses <-   str_replace_all(rel.spdsht$addresses, "Puerto Rico", "Puerto_Rico")
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses,"Cayman Islands", "Cayman_Islands")
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses,"Trinidad and Tobago", "Trinidad_and_Tobago")
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses,"Virgin Islands (British)|Virgin Islands", "Virgin_Islands")
+rel.spdsht$addresses <- str_replace_all(rel.spdsht$addresses,"St Kitts & Nevi", "StKitts_and_Nevi")
+```
+_4b. Split strings_  
+```{r splitaddresses,warning=FALSE}
+author.countries.df <- rel.spdsht %>% 
+  mutate(edit.addresses=addresses,.after=addresses) %>% 
+  mutate(edit.addresses=sub("\\Florida.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\Texas.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\FL.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\TX.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\New York.*"," USA",edit.addresses)) %>% 
+  mutate(edit.addresses=sub("\\ILLINOIS.*"," USA",edit.addresses)) %>% 
+  mutate(countries_all = (strsplit(edit.addresses,"\\[[^\\]]*\\](*SKIP)(*F)|\\h*;\\h*", perl=T) %>% 
+                            lapply(.,function(x) {word(x,start=-1,sep=" ")}) %>% 
+                            map_chr(.,toString) 
+                          ),
+                          .after=edit.addresses) %>% 
+  separate(countries_all,into=c("first_authors","coauthors"),sep=",",extra="merge",remove=F)
+```
+
+# 5. Data frames      
+
+_5a. Rename some values for ease of understanding_     
+_Open access tiers_  
+Diamond/Platinum = OA for readers at no cost to authors   
+Gold = final version of article is open access immediately following publication   
+Hybrid = available to subscribers to the journal but also freely available to everyone   
+Green = pre-print/publisher's version can be archived; 'self archiving'   
+```{r updateOA}
+author.countries.df <- author.countries.df %>%
+  mutate(OA=case_when(open_access=="NA" ~ "Not Open Access",
+                      str_detect(open_access,"iamond|latinum") ~ "Diamond",
+                           str_detect(open_access,"old") ~ "Gold",
+                           str_detect(open_access,"reen") & !str_detect(open_access,"old") ~ "Green",
+                           str_detect(open_access,"ronze") & !str_detect(open_access,"old") & !str_detect(open_access,"reen") ~ "Bronze",
+                           str_detect(open_access,"ybrid") ~ "Hybrid",
+                               .default=open_access),
+         .after=open_access)
+```
+_Shorten paper category names_
+```{r papercategory}
+author.countries.df <- author.countries.df %>% 
+  mutate(PaperType=case_when(`Type of Paper` == "Basic/descriptive science" ~ "A", 
+                         `Type of Paper` == "Perspective/opinion" ~ "B", 
+                         `Type of Paper` == "Applied science" ~ "C", 
+                         .default="Not assigned"),
+         .after=`Type of Paper`
+         )
+```
+_Identify collaboration within MAR_  
+Add information about whether there was collaboration with people in country  
+```{r marcollab}
+author.countries.df <- author.countries.df %>% 
+  mutate(marfirst=case_when(str_detect(first_authors,
+                                       "Mexico|Belize|Guatemala|Honduras") ~ "Lead",
+                            str_detect(coauthors,
+                                       "Mexico|Belize|Guatemala|Honduras") ~ "Coauthor",
+                            .default="Not author"),
+         .after="first_authors") 
+```
+_Bin everything before 1990_  
+Add information about whether there was collaboration with people in country  
+```{r marcollab}
+author.countries.df <- author.countries.df %>% ungroup() %>% 
+  mutate(Oldyear=year,
+         year=case_when(year<1990 ~ 1990,.default=year)) 
+```
+
+_5b. Make figure data frames_    
+Calculate how productive each country is and how that number changes over time  
+```{r}
+firstauthcountries.df <- author.countries.df %>% 
+  add_count(first_authors,sort=TRUE,name="TotalPapersCountry") %>%  #count how many papers for each country
+  mutate(first_authors=factor(first_authors, #set names of country as factors
+                              levels=unique(first_authors),ordered=TRUE)) %>% 
+  ungroup() %>% 
+  group_by(year) %>% #group by year
+  mutate(papers_peryear=n()) %>% #count number of total papers in a year
+  ungroup() %>% group_by(year,first_authors,papers_peryear) %>% #group by year and country
+  reframe(author_peryear=n(), #count number of papers coming out of a country in each year
+          TotalPapersCountry=TotalPapersCountry) 
+```
+How many countries overall are involved in the papers we identified?  
+```{r}
+all.countries <- lapply((author.countries.df %>% 
+  separate_wider_delim(., #split a string into columns 
+                       cols=countries_all,
+                       delim=",", #delimiter between values to separate
+                       names_sep="_", #output column names are separated with
+                       too_few="align_start" #adds NA to any strings that are too short to fill in all columns
+                       ) %>% 
+    select(starts_with("countries"))),unique) %>% 
+  c() %>% unlist() %>% 
+  trimws(.,which="left") %>% unique()
+```
+data frame to look at the country affiliation of ALL authors (first and coauthor)  
+```{r}
+ year.countries.df <- author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all, #separate the list of all author countries 
+                       delim=",", #separate by comma
+                       names_sep="_", #delimiter separating names of new columns
+                       too_few="align_start") %>% #if there are uneven numbers, fill the remaining with NA  
+  select(c(year,Oldyear,starts_with("Type"),language,starts_with("countr"))) %>% #keep only year, type of paper, language, and country columns  
+  #group_by(year) %>% summarize(across(starts_with("count"),n_distinct))
+pivot_longer(cols=c(starts_with("countries")), #take all country columns and make each their own row. makes a new column 'name' with the column name each country value came from 
+              #names_to="year",
+              values_drop_na=TRUE
+              ) %>% 
+  mutate(value=trimws(value,which="left")) %>%
+  
+  #### first, sum the country affiliation of each first author for each year #### 
+  
+  group_by(year,value,name) %>% 
+  mutate(firstauth=case_when(name=="countries_all_1" & row_number() == 1 ~ n(), #get the count of number of first author papers for each country each year
+                             .default=NA)) %>%
+  
+  #### next, sum the total participation: for ALL authors, how many are from each country each year? #### 
+  
+  ungroup() %>%
+  group_by(year,value) %>% 
+  mutate(total_percountry_peryear = case_when(
+    row_number() == 1 ~ n(),
+    .default=NA
+  )) %>% #distinct() %>%
+  #group_by(year,value) %>%  #filter(n()>1 & !is.na(firstauth) | n()==1) %>% #filter out duplicate rows where a country has a first author 
+  
+  #### then, sum the total participation: for ALL authors, how many are from each country? ####
+  
+  ungroup() %>% 
+  group_by(value) %>% 
+  mutate(total_percountry = case_when( row_number() == 1 ~ sum(total_percountry_peryear,na.rm=TRUE),
+    .default=NA ), #get the total number of times a country is in a published paper  
+    
+  #### then, get the total number of first author papers for each country? ####
+    
+         total_firstauth = case_when(row_number() == 1 ~ sum(firstauth,na.rm=TRUE),
+    .default=NA )
+    ) %>% #get the total number of first author papers for each  
+  ungroup() %>%
+  select(-name) %>% distinct() %>%
+  arrange(desc(total_percountry)) %>% 
+  mutate(value=factor(value,levels=rev(unique(value)),ordered=TRUE)) #order in descending order by the total number of papers
+```
+```{r}
+#check accuracy 
+sum(year.countries.df$firstauth,na.rm=TRUE)
+sum(year.countries.df$total_firstauth,na.rm=TRUE)
+```
+*How many papers did we start with/end with?*  
+```{r}
+nrow(spdsht)
+nrow(rel.spdsht)
+```
+454 papers -> 317 papers  
+
+_Regional focus_  
+```{r}
+eco.df <- author.countries.df %>% 
+  separate_wider_delim(.,cols=countries_all, #separate the list of all author countries 
+                       delim=",", #separate by comma
+                       names_sep="_", #delimiter separating names of new columns
+                       too_few="align_start")  %>% 
+  
+  rename(.,"FocusGeography"="Paper Geographical Area of Focus",
+         "Management"="Marine Management  - mention/focus",
+         "MPA"="Protected areas (MPAs etc.) - mention/focus",
+         "MP"="Protected Area Management Plans - mention/focus" ,
+         "Policy"="Policy/Law/Legislation/Framework or governance - mention/focus",
+         "GeoFocus"="Focus on geomorphology/physical characteristics") %>% 
+  mutate(FocusGeography=case_when(str_detect(FocusGeography,"whole region") ~ "MAR",
+                                  str_detect(FocusGeography,"Wider Caribbean") ~ "Caribbean",
+                                  .default=FocusGeography)) %>% 
+  separate_wider_delim(.,cols="FocusGeography", #separate the list of all author countries 
+                       delim=",", #separate by comma
+                       names_sep="_", #delimiter separating names of new columns
+                       too_few="align_start")
+
+```
+
+_Ecosystem focus_  
+```{r}
+geo.df <- eco.df %>% 
+  select(c(year,starts_with("countr"), #keep all the country affiliations of the authors  
+           starts_with("Focus"),
+           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`) #keep the ecosystem topics 
+         ) %>% 
+  pivot_longer(cols=c(GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`)) %>% #collapse all of the ecosystem focus options into one column  
+  mutate(value=case_when(value=="Unsure - flag to review later" ~ NA, #change unsures to NA
+                         value=="No" ~ NA, #change No to NA 
+                         .default=value),
+         name=case_when(name=="GeoFocus" ~ "Geomorphology",
+                        name=="Focus on Seagrass" ~ "Seagrass",
+                        name=="Focus on Coral" ~ "Coral",
+                        name=="Focus on Mangrove" ~ "Mangrove",
+                        name=="Focus on  fish/fisheries" ~ "Fisheries",
+                        .default=name))  %>% 
+  rename("Focus"="name", 
+         "FocusY"="value") %>% 
+  pivot_longer(cols=c(starts_with("countr"))) %>% #collapse all of the countries into one column  
+  filter(!is.na(value) & !is.na(FocusY)) %>% 
+  group_by(year,value,name) %>% 
+  mutate(firstauth=case_when(name=="countries_all_1" & row_number() == 1 ~ n(), #get the count of number of first author papers for each country each year
+                             .default=NA),
+         value=str_trim(value,side="both")) %>%
+  ungroup() %>%
+  group_by(year,value,Focus) %>% 
+  mutate(focus_peryear = n()) %>%
+  select(-c(name,FocusY)) %>%
+  distinct() %>% 
+  ungroup() %>% group_by(value) %>% 
+  mutate(n=n()) %>% #sum the total number of times a country appears in the list
+  #filter(n>1) %>%
+  arrange(n) %>% 
+  mutate(value=factor(value,levels=unique(.$value),ordered=TRUE)) 
+```
+
+```{r}
+#data frame of geographic focus + number of papers for each area  
+df.1 <- eco.df %>% 
+  select(starts_with("FocusGeo")
+           ) %>% 
+  
+  #pivot_longer takes us from 317 rows (1 per paper)
+  #goes to 351 (317 + 24 rows with a value in FocusGeography_2 + 10 rows with a value in FocusGeography_3)
+  
+  pivot_longer(cols=c(starts_with("FocusGeo")), #give each geographic focus its own row (so papers occurring in multiple countries will have multiple lines) 
+               values_drop_na = TRUE) %>% 
+  rename("GeographicFocus"=value) %>% 
+  select(-name) %>% #remove column of old column names for "focusgeography"
+
+  mutate(GeographicFocus=str_trim(GeographicFocus,side="both")) %>% #remove leading and trailing whitespace
+  ungroup() %>% group_by(GeographicFocus) %>% 
+  mutate(N_GeographicFocus=n()) %>% #count number of studies taking place on each region in the MAR
+  distinct()
+
+#need a df for geographic focus that also takes into account topical focus  
+
+
+#need a df for topical focus that also takes into account year and country
+
+df.2 <- eco.df %>%
+  select(c(year,starts_with("countr"), #keep all the country affiliations of the authors  
+           #starts_with("Focus"),
+           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`) 
+         ) %>% 
+  pivot_longer(cols=c(GeoFocus,`Focus on Mangrove`, #put all topic focus options into one column 
+                      `Focus on Coral`,`Focus on Seagrass`,
+                      `Focus on  fish/fisheries`),
+               values_drop_na = TRUE) %>% #do not fill in missing values with NA  
+  
+  #combine all ambiguous and No answers for topic focus to NA for later analysis
+  
+  mutate(value=case_when(value=="Unsure - flag to review later" ~ NA, #change unsures to NA
+                         value=="No" ~ NA, #change No to NA 
+                         str_detect(value,"N/A") ~ NA, #change N/A (not focused on fisheries) to NA 
+                         .default=value),
+         name=case_when(name=="GeoFocus" ~ "Geomorphology",
+                        name=="Focus on Seagrass" ~ "Seagrass",
+                        name=="Focus on Coral" ~ "Coral",
+                        name=="Focus on Mangrove" ~ "Mangrove",
+                        name=="Focus on  fish/fisheries" ~ "Fisheries",
+                        .default=name))  %>% 
+  rename("TopicFocus"="name", 
+         "MentionTopicFocus"="value") %>% 
+group_by(year,TopicFocus,MentionTopicFocus) %>% 
+  mutate(focus_peryear = case_when(MentionTopicFocus=="Yes" ~ n(),
+                                   MentionTopicFocus=="No" ~ NA)) 
+
+
+df.3 <- eco.df %>% 
+  select(c(year,starts_with("countr"), #keep all the country affiliations of the authors  
+           starts_with("Focus"),
+           starts_with("MP"),
+           Policy,Management,
+           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`) 
+         ) %>% 
+  
+  pivot_longer(cols=c(starts_with("countr")), #collapse all of the countries into one column  
+               values_drop_na = TRUE) %>% #drop only rows that will have NA in the value column (these were introduced by previous df manipulations to make data tabular and not relevant to the analysis)
+  
+  group_by(year,value,name) %>% #group by year, country, and authorship position
+ # mutate(firstauth=case_when(name=="countries_all_1" & row_number() == 1 ~ n(), #get the count of number of first author papers for each country each year
+  #                           .default=NA),
+         mutate(
+           value=str_trim(value,side="both")) %>%
+  ungroup() %>%
+  
+  group_by(year,value,TopicFocus,MentionTopicFocus) %>% 
+  mutate(focus_peryear = case_when(MentionTopicFocus=="Yes" ~ n(),
+                                   MentionTopicFocus=="No" ~ NA)) %>%
+  select(-c(name,MentionTopicFocus)) %>%
+  distinct() %>% 
+  ungroup() %>% group_by(value) %>% 
+  mutate(n=n()) %>% #sum the total number of times a country appears in the list
+  #filter(n>1) %>%
+  arrange(n) %>% 
+  mutate(value=factor(value,levels=unique(.$value),ordered=TRUE)) 
+```
+
+```{r}
+eco.df %>% 
+  select(c(`Paper #`,#year,#starts_with("countr"), #keep all the country affiliations of the authors  
+           starts_with("MP"),
+           Policy,Management,
+           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`), 
+           starts_with("Focus")
+         ) %>% 
+rename("PaperNum"=`Paper #`) %>%
+  mutate(Num=1:n(),.after=PaperNum) %>%
+# 1 row/paper
+# 1 column/country
+# 1 column/geographic focus
+# 1 column/topical focus
+# 1 column/MPA,MP,Policy,Management
+
+# goal is a df that we can use for the pie chart  
+  # num of papers that are based in each region, whether they discuss fisheries, ecosystems, or management 
+  # step 1: make one row per regional focus  
+  
+  pivot_longer(cols=c(starts_with("FocusGeo")), #give each geographic focus its own row (so papers occurring in multiple countries will have multiple lines) 
+               values_drop_na = TRUE) %>% 
+  rename("GeographicFocus"=value) %>% 
+  select(-name) %>% #remove column of old column names for "focusgeography"
+
+  mutate(GeographicFocus=str_trim(GeographicFocus,side="both")) %>% #remove leading and trailing whitespace
+  ungroup() %>% group_by(GeographicFocus) %>% 
+  mutate(N_GeographicFocus=n()) %>% #count number of studies taking place on each region in the MAR
+  
+  
+  
+  
+  
+  # step 2: combine all policy-related/adjacent options
+  pivot_longer(cols=c(MPA,MP,Policy,Management),
+               values_drop_na=TRUE) %>% 
+  mutate(value=case_when(str_detect(value,"No") ~ "No",
+                         str_detect(value,"ecommendati") ~ "No",
+                         str_detect(value,"focus") ~ "Yes",
+                         str_detect(value,"only") ~ "No",
+                         .default=value
+                                    )) %>% 
+  ungroup() %>% group_by(GeographicFocus) %>% 
+  
+  mutate(Policy=case_when(value=="Yes" ~ "Yes",.default=NA),
+        N_policy=sum(!is.na(Policy)),
+         .after=N_GeographicFocus) %>% 
+  select(-c(value,name)) %>%
+  filter(!duplicated(Num)) %>% 
+  
+  
+  
+  
+  
+  #step 3: select ecosystem topics  
+  pivot_longer(cols=c(GeoFocus,
+                      "Focus on Mangrove","Focus on Seagrass",
+                      "Focus on Coral","Focus on Other Ecosystem",
+                      `Focus on  fish/fisheries`
+                      )
+               ) %>% 
+  mutate(
+  value=case_when(str_detect(value,"No") ~ NA, #change No to NA; should also catch "Not talked about"
+                  str_detect(value,"N/A") ~ NA, #change N/A (not focused on fisheries) to NA 
+                  
+                  #Yes categories  
+                  str_detect(value,"ocus") ~ "Yes", #should include "yes - focus on fisheries","Major focus", and "focus on fish but not necessarily commercial"
+                  str_detect(value,"Yes") ~ "Yes",
+                  
+                  str_detect(value,"includes recommendation") ~ "Fisheries adjacent",
+                  str_detect(value,"Talked about") ~ "Fisheries adjacent", #change framing answers to NA
+                  
+                         .default=value),
+         name=case_when(name=="GeoFocus" ~ "Geomorphology",
+                        str_detect(name,"eagrass") ~ "Seagrass",
+                         str_detect(name,"oral")  ~ "Coral",
+                         str_detect(name,"angrove")  ~ "Mangrove",
+                         str_detect(name,"ish")  ~ "Fisheries",
+                         str_detect(name,"Other Ecosystem") ~ "Other ecosystem",
+                        .default=name) 
+  ) %>%
+  rename("Topic"="name") %>%
+  group_by(GeographicFocus,Topic) %>% 
+  mutate(#Topic=name,
+         N_topic=sum(!is.na(value)),
+         .after=Topic) %>% ungroup() %>%
+  select(-value) %>%
+  #filter(!duplicated(Num)) %>%  
+  
+  #select(-year) %>%
+#distinct() %>% 
+ # group_by(GeographicFocus,Topic) %>% mutate(n=n()) %>% ungroup() %>% group_by(GeographicFocus) %>% mutate(total=n())
+
+  
+#step 4: human systems/human element  
+pivot_longer(cols=c(starts_with("Focus on")),values_drop_na = TRUE) %>% 
+mutate(value=case_when(value=="Yes" ~ "Yes",.default=NA),
+       name=case_when( str_detect(name,"ender") ~ "Gender",
+                         str_detect(name,"ngage") ~ "Community",
+                         str_detect(name,"nowledge") ~ "Traditional knowledge",
+                         str_detect(name,"voluntourism") ~ "Alternative livelihoods",
+                         str_detect(name,"liveli") ~ "Alternative livelihoods",
+                         str_detect(name,"takeholder") ~ "Community",
+                         #str_detect(name,"ender") ~ "Community",
+                         #str_detect(name,"ngage") ~ "Community",
+                         #str_detect(name,"nowledge") ~ "Community",
+                         #str_detect(name,"voluntourism") ~ "Community",
+                         #str_detect(name,"liveli") ~ "Community",
+                         #str_detect(name,"takeholder") ~ "Community",
+  .default = name
+  )) %>% 
+  rename("Human"="name") %>% 
+  group_by(GeographicFocus,Human) %>% 
+  mutate(N_human=sum(!is.na(value))) %>%
+  
+  
+  
+  
+  
+  select(-c(PaperNum,Num,value)) %>% distinct() %>% 
+  pivot_wider(names_from=c(Human),
+              values_from=c(N_human)
+              ) %>%
+  pivot_wider(names_from=c(Topic),
+              values_from=c(N_topic)
+              ) %>%
+  filter(!is.na(Policy)) %>%
+  select(-Policy) %>%
+rename("Policy"="N_policy") %>%
+  t() %>%
+View()
+
+
+
+
+group_by(GeographicFocus,Topic,value) %>% 
+  reframe(n=sum(is.na(value)==FALSE)) %>% 
+  filter(n>0) %>%
+  #filter(value=="Belize" | value == "Honduras" | value=="Guatemala" | value=="Mexico") %>%
+  group_by(GeographicFocus) %>% 
+  mutate(frac=n/sum(n)) %>%
+  ggplot(aes(group=Topic,x="",y=frac,fill=Topic)) + 
+  geom_bar(stat="identity",width=1,color="black") + 
+  coord_polar("y",start=0) + 
+  facet_wrap(~GeographicFocus) + 
+  scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
+  theme_void() 
+```
+
+```{r}
+eco.df %>% 
+  select(c(`Paper #`,#year,#starts_with("countr"), #keep all the country affiliations of the authors  
+           starts_with("MP"),
+           Policy,Management,
+           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`), 
+           starts_with("Focus")
+         ) %>% 
+rename("PaperNum"=`Paper #`) %>%
+  
+  pivot_longer(cols=c(starts_with("FocusGeo")), #give each geographic focus its own row (so papers occurring in multiple countries will have multiple lines) 
+               values_drop_na = TRUE) %>% 
+  rename("GeographicFocus"=value) %>% 
+  select(-name) %>% #remove column of old column names for "focusgeography"
+
+  mutate(GeographicFocus=str_trim(GeographicFocus,side="both")) %>% #remove leading and trailing whitespace
+  ungroup() %>%
+
+ # mutate(Num=1:n(),.after=PaperNum) %>% 
+  select(-PaperNum) %>%
+  mutate(across(where(is.character), ~ case_when(str_detect(.,"No") ~ NA,
+                         str_detect(.,"ecommendati") ~ NA,
+                         str_detect(.,"focus") ~ "Yes",
+                         str_detect(.,"only") ~ NA,
+                         str_detect(.,"fish") ~ "Yes",
+                         .default=.))) %>% 
+  
+  group_by(GeographicFocus) %>% summarize_at(vars(-group_cols()),~sum(!is.na(.))) %>%
+  pivot_longer(cols=-GeographicFocus) %>%
+  rename("Topic_all"="name",
+         "Topic_all_num"="value") %>% 
+  ungroup() %>% 
+  mutate("Topic_new"=case_when(str_detect(Topic_all,"MP") ~ "Policy",
+                             str_detect(Topic_all,"Management") ~ "Policy",
+                             str_detect(Topic_all,"GeoFocus") ~ "Geophysical",
+                        str_detect(Topic_all,"eagrass") ~ "Seagrass",
+                         str_detect(Topic_all,"oral")  ~ "Coral Reefs",
+                         str_detect(Topic_all,"angrove")  ~ "Mangroves",
+                         str_detect(Topic_all,"ish")  ~ "Fish and Fisheries",
+                         str_detect(Topic_all,"Other Ecosystem") ~ "Other Ecosystems",
+                        str_detect(Topic_all,"ender") ~ "Gender",
+                         str_detect(Topic_all,"ngage") ~ "Community Engagement",
+                         str_detect(Topic_all,"nowledge") ~ "Traditional knowledge",
+                         str_detect(Topic_all,"voluntourism") ~ "Alternative livelihoods",
+                         str_detect(Topic_all,"liveli") ~ "Alternative livelihoods",
+                         str_detect(Topic_all,"takeholder") ~ "Community Engagement",
+                             .default=Topic_all)) %>%
+  group_by(GeographicFocus,Topic_new) %>% 
+  reframe(Topic_new_num=sum(Topic_all_num)) %>%
+  
+  filter(GeographicFocus=="Belize" | GeographicFocus == "Honduras" | GeographicFocus=="Guatemala" | GeographicFocus=="Mexico") %>%
+  group_by(GeographicFocus) %>% 
+  mutate(frac=Topic_new_num/sum(Topic_new_num)) %>%
+  ggplot(aes(group=Topic_new,x="",y=frac,fill=Topic_new)) + 
+  geom_bar(stat="identity",width=1,color="black") + 
+  coord_polar("y",start=0) + 
+  facet_wrap(~GeographicFocus) + 
+  scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
+  theme_void() 
+```
+
+
+
+# Analysis  
+
+### Analysis: Authorship  
+
+##### Number of countries  
+Where are most authors coming from?  
+
+*How many countries have been involved in scientific articles regarding the MAR?*    
+```{r}
+length(all.countries[!is.na(all.countries)])
+```
+45 countries  
+
+*Most productive countries overall? (including first and coauthors)*  
+```{r}
+top10 <- year.countries.df %>% arrange(desc(total_percountry)) %>% .$value %>% unique() %>% .[1:10]
+
+top15 <- year.countries.df %>% filter(value != "NA") %>% arrange(desc(total_percountry)) %>% .$value %>% unique() %>% .[1:15]
+
+top10
+top15
+```
+Mexico comes in first, followed by US and UK  
+
+Do those super productive countries change if we only look at the last 10 years? How about 5? 
+```{r}
+top10.2015 <- year.countries.df %>% filter(year>2015) %>% group_by(value) %>% mutate(newtotal=sum(total_percountry_peryear,na.rm = TRUE)) %>% arrange(desc(newtotal)) %>% .$value %>% unique() %>% .[1:10]
+
+top10.2020 <- year.countries.df %>% filter(year>2020) %>% group_by(value) %>% mutate(newtotal=sum(total_percountry_peryear,na.rm = TRUE)) %>% arrange(desc(newtotal)) %>% .$value %>% unique() %>% .[1:10]
+
+top10.2015
+top10.2020
+```
+Minor changes after US and Mexico, but nothing substantial I think.  
+
+How productive are these countries?  
+```{r}
+year.countries.df %>% filter(value %in%top15) %>% select(c(value,total_percountry,total_firstauth)) %>% 
+  filter(!is.na(total_percountry) & !is.na(total_firstauth)) %>% .$total_firstauth %>% sum()
+
+year.countries.df %>% filter(!value %in%top15) %>% select(c(value,total_percountry,total_firstauth)) %>% 
+  filter(!is.na(total_percountry) & !is.na(total_firstauth)) %>% .$total_firstauth %>% sum()
+
+year.countries.df %>% filter(value %in%top15) %>% select(c(value,total_percountry,total_firstauth)) %>% 
+  filter(!is.na(total_percountry) & !is.na(total_firstauth))
+```
+the top 15 countries encompassed 298 of the papers, or 94% of the total papers
+
+*Who was publishing early?*  
+```{r}
+year.countries.df %>% filter(year < 2006) %>% .$value %>% unique() %>% length()
+year.countries.df %>% filter(year < 2006) %>% select(c(year,value,firstauth,total_percountry_peryear,total_firstauth)) %>% distinct() %>% arrange(year)
+```
+
+```{r}
+year.countries.df %>% filter(Oldyear < 2006) %>% select(c(Oldyear,value,firstauth,total_percountry_peryear,total_firstauth)) %>% 
+  group_by(value) %>% 
+  summarize(first=sum(firstauth,na.rm=TRUE),
+            total=sum(total_percountry_peryear,na.rm=TRUE))
+```
+
+```{r}
+length(year.countries.df %>% filter(year < 2006) %>% .$value %>% unique())
+year.countries.df %>% filter(year < 2006) %>% .$value %>% unique()
+```
+
+```{r}
+length(year.countries.df %>% filter(year > 2006) %>% .$value %>% unique())
+year.countries.df %>% filter(year > 2006) %>% .$value %>% unique()
+```
+
+##### Number of first author countries?  
+```{r}
+firstauthcountries.df %>% .$first_authors %>% unique() %>% length()
+```
+30 different countries were first authors  
+and of those 30, the USA had the most number of first author publications closely followed by Mexico, with the UK in a distant 3rd 
+```{r}
+firstauthcountries.df %>% filter(!duplicated(first_authors)) %>% arrange(desc(TotalPapersCountry)) %>% .$first_authors
+#double check that math is right: does TotalPapersCountry add up to the total number of papers? 
+#firstauthcountries.df %>% filter(!duplicated(first_authors)) %>% .$TotalPapersCountry %>% sum()
+```
+
+##### Percent authorship    
+```{r}
+participation.df <- author.countries.df %>% 
+  group_by(Oldyear,marfirst) %>% 
+  summarize(n=n()) %>% 
+  pivot_wider(names_from="marfirst",values_from="n") %>% 
+  mutate(total=sum(`Not author`,Lead,Coauthor,na.rm=TRUE),
+         perc=sum(Lead,Coauthor,na.rm = TRUE)/total,
+         leadperc=sum(Lead,na.rm=TRUE)/total
+         ) %>% arrange(desc(Oldyear))
+
+participation.df
+```
+Prior to 2006, 1-6 papers focusing on the MAR were published each year   
+```{r}
+participation.df %>% filter(Oldyear<2006 & total>0) %>% .$total %>% range()
+```
+Prior to 2000, only 1-2 papers focusing on the MAR were published each year   
+```{r}
+participation.df %>% filter(Oldyear<2000 & total>0) %>% .$total %>% range()
+```
+12.5% of those papers included someone from within the region in the authorship list.   
+```{r}
+participation.df %>% filter(Oldyear<2000 & total>0) %>% .$perc %>% mean()
+```
+Publishing began to increase after 2006, breaking the double digits  
+```{r}
+participation.df %>% filter(Oldyear>2000 & Oldyear<2012)
+```
+```{r}
+participation.df %>% filter(Oldyear>2006 & Oldyear<2014) %>% .$perc %>% mean(.,na.rm=TRUE)
+participation.df %>% filter(Oldyear>2006 & Oldyear<2014) %>% .$leadperc %>% mean(.,na.rm=TRUE)
+```
+
+In the preceding decade, 43.45% of papers have included someone from within country, 31.45% of which were led by the first author.    
+
+```{r}
+participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>% 
+  .$total %>% range(.,na.rm=TRUE)
+participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>% 
+  .$perc %>% mean(.,na.rm=TRUE)
+participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>% 
+  .$leadperc %>% mean(.,na.rm=TRUE)
+```
+This increased to 48.42% of papers including someone from within country, 42.79% of which were led by the first author within country.  
+
+### Analysis: Percent access    
+
+#### Percent basic vs percent applied  
+```{r,warning=FALSE,message=FALSE}
+applied.df <- author.countries.df %>% group_by(year,`Type of Paper`) %>% 
+  summarize(n=n()) %>% 
+  mutate(`Type of Paper`=case_when(is.na(`Type of Paper`) ~ "Unknown",
+                                   .default=`Type of Paper`)) %>% 
+  mutate(across(where(is.character), str_replace_all, replacement="_", pattern=" ")) %>% 
+  pivot_wider(names_from=`Type of Paper`,values_from="n",values_fill=0) %>% 
+  column_to_rownames(.,"year") %>% 
+  mutate(total=rowSums(.,na.rm=TRUE),
+         perc=round(Applied_science/total,digits=4)
+         ) 
+```
+```{r}
+applied.df
+```
+```{r}
+applied.df %>% filter(rownames(.)>2014) %>% .$perc %>% mean()
+```
+
+#### Percent open access  
+```{r}
+oa.df <- author.countries.df %>% group_by(year, OA) %>% 
+  summarize(n=n())%>% 
+  pivot_wider(names_from=OA,values_from="n",values_fill=0) %>% 
+  column_to_rownames(.,"year") %>% 
+  mutate(total=rowSums(.,na.rm=TRUE),
+         year=rownames(.)) %>% rowwise() %>% 
+        mutate( perc=round(sum(Bronze,Gold,Green,Hybrid,na.rm=TRUE)/total,digits=4)
+  ) %>% column_to_rownames(.,"year") 
+```
+```{r}
+oa.df
+```
+```{r}
+oa.df %>% filter(rownames(.)>2014) %>% .$perc %>% mean()
+```
+```{r}
+arrange(oa.df,desc(perc))[1:10,]
+```
+
+#### Percent English  
+```{r}
+lang.df <- author.countries.df %>% group_by(year,language) %>% 
+  summarize(n=n()) %>% 
+  pivot_wider(names_from=language,values_from="n",values_fill=0) %>% 
+  column_to_rownames(.,"year") %>% 
+  mutate(total=rowSums(.,na.rm=TRUE),
+         perc=round(Spanish/total,digits=4)
+         ) 
+```
+```{r}
+lang.df
+```
+```{r}
+mean(lang.df$perc)
+```
+
+Across all years with more than one published paper, only 3.42% of papers were published in Spanish  
+```{r}
+lang.df %>% filter(total>1) %>% .$perc %>% mean()
+```
+In the last decade, only 1.36% of papers were published in Spanish    
+```{r}
+lang.df %>% filter(rownames(.) > 2014) %>% .$perc %>% mean()
+```
+
+### Analysis: Ecosystem    
+
+#### Percentage by ecosystem  
+Percentage of papers focused on each ecosystem - is there a bias?  
+```{r}
+geo.df %>% group_by(Focus) %>% summarize(n=n(),
+                                         perc=round(n/nrow(.),digits=4) )
+```
+```{r}
+geo.df %>% group_by(year,Focus) %>% 
+  summarize(n=n()) %>% 
+  ungroup() %>% group_by(year) %>% 
+  mutate(x=sum(n),
+         perc=round(n/x,digits=4)) 
+```
+
+#### Percentage by country    
+```{r}
+pivot_longer(eco.df,cols=starts_with("FocusGeo")) %>% 
+  mutate(RegionOfFocus=trimws(value,which="both"),.before="PaperType") %>%
+  filter(.,!is.na(RegionOfFocus)) %>% 
+  group_by(RegionOfFocus) %>% 
+  reframe(NumberOfPapers=n()) %>% 
+  arrange(desc(NumberOfPapers)) %>%  #aov(NumberOfPapers~RegionOfFocus,.) %>% TukeyHSD()
+  mutate(perc=NumberOfPapers/sum(NumberOfPapers)) 
+```
+
+```{r}
+geo.df %>% group_by(value,Focus) %>% 
+  summarize(n=n()) %>% 
+  #pivot_wider(names_from=Focus,values_from=n,values_fill=0) %>% 
+  filter(value%in%top15) #%>% aov(n~value,.) %>% TukeyHSD()
+```
+
+
+# 6. Countries  
+```{r}
+country.pal <- c("#2f4b7c",
+"#a05195","#665191","#d45087",
+"#f95d6a","#ff7c43","#ffa600",
+"#003f5c","#4553c2", "#80b6aa", "#255026", "#49c32f", "#8e0049", "#fd5917", "#14c197", "#265582", "#d98ff4", "#7b038e", "#f75ef0", "#87a9fd", "#2524f9", "#85aa32", "#633d30", "#f5943b", "#a51409", "#fd8992", "#ff0087", "#c6a2ac",
+"#78b4c6", "#016876", "#5faf66", "#1f3ca6", "#e689eb", "#841ea4", "#9a95e5", "#5b3c5e", "#f642d0", "#0b5313", "#f85582", "#943105", "#f9905b", "#972554", "#0ec61c", "#e8250c", "#55450a", "#cba662", "#270fe2","#e29578","#83c5be","#ffddd2","#9c89b8","#ffbe0b"
+  )
+
+#scales::show_col(country.pal)
+
+names(country.pal) <- unique(year.countries.df$value)
+```
+
+## Figure components  
+```{r}
+year.country.ridgeplot <- ggplot(year.countries.df, aes(x=year,y=value,height=total_percountry_peryear,fill=value)) + 
+  geom_density_ridges2(scale = 8,linewidth=.1,alpha=0.9,stat="identity",na.rm=TRUE) +
+  theme_bw() +
+  scale_fill_manual(values=country.pal) + 
+  ggpubr::labs_pubr() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="none",
+        panel.grid.major.y = element_line(color="grey80"),
+        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
+        ) + 
+  labs(title="Change in authored papers by year") + scale_x_continuous(breaks=c(1990,2000,2010,2020),labels=c("Cumulative \n Prior to 1990",2000,2010,2020),expand=c(0,0)) + theme(axis.text.x=element_text(angle=-20,hjust=0))
+
+year.country.ridgeplot 
+
+#ggsave("Figures/PapersByCountry_ridgeline.png",year.country.ridgeplot,width=15,height=10)
+```
+```{r,message=FALSE}
+country.authors.dotplot <-  year.countries.df %>% group_by(year,value) %>% summarize(firstauth=sum(firstauth,na.rm=TRUE),total_percountry_peryear=sum(total_percountry_peryear,na.rm=TRUE)) %>% 
+  ggplot(aes(x=year,y=value,color=firstauth)) + 
+  geom_point(aes(size=total_percountry_peryear),alpha=0.95) + 
+  scale_size_continuous(name="Number of \n authors",range=c(3,10),breaks=c(1,5,10,20,40,55)) +
+  scale_color_gradientn(name="Number of \n first author \n publications",
+                        colors=c("#d2ebf1","#219ebc","#176e83","#023047","#ffb703","#fb9d32","#fb8500")) + 
+ scale_x_continuous(breaks=c(1990,2000,2010,2020),labels=c("Cumulative \n Prior to 1990",2000,2010,2020),expand=c(0,0)) + 
+  theme_bw() + 
+  ggpubr::labs_pubr() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),axis.text.x=element_text(angle=-20,hjust=0),
+        legend.position="bottom",
+        panel.grid.major.y = element_line(color="grey80")
+        ) + 
+  guides(size=guide_legend(nrow=1,theme=theme(legend.key.size = unit(3, "point")))) +
+  labs(title="Authors in papers published each year",
+       caption="Points without a first author publication are colored in grey")
+
+country.authors.dotplot
+
+#ggsave("Figures/AuthorsByYear_dotplot.png",country.authors.dotplot,width=20,height=15)
+```
+
+In the previous figure we saw how the number of first author publications has changed, but what about overall?
+```{r,warning=FALSE}
+coauthor.plot <- author.countries.df %>% 
+  group_by(year,marfirst) %>% reframe(n=n()) %>%
+  pivot_wider(names_from=marfirst,values_from=n,values_fill=0) %>% 
+  pivot_longer(cols=c("Not author","Lead","Coauthor")) %>% 
+  ungroup() %>% summarize("year"=year,"marfirst"=name,n=value) %>%
+ggplot(.) + 
+  geom_line(aes(x=year,y=n,group=marfirst,color=marfirst),linewidth=2.5) + viridis::scale_color_viridis(name="Papers including \n authors from the region",discrete=TRUE,option="D",begin=0.95,end=0) + 
+  theme_bw() +
+  scale_fill_manual(values=country.pal) + 
+  ggpubr::labs_pubr()  +
+  #scale_x_continuous(name=NULL,limits=c(1990,2025),expand=c(0,0)) + 
+  scale_x_continuous(breaks=c(1990,2000,2010,2020),
+                     labels=c("Cumulative \n Prior to 1990",2000,2010,2020),
+                     expand=c(0,0)) + 
+  theme(axis.text.x=element_text(angle=-20,hjust=0)) +
+  scale_y_continuous(name="Number of papers", 
+                     limits=c(0,14),expand=c(0,0.5),
+                     breaks=c(0,2,4,6,8,10,12,14))
+
+coauthor.plot
+
+#ggsave("Figures/RegionalAuthorship_lineplot.png",coauthor.plot,width=7,height=5)
+```
+```{r,warning=FALSE,message=FALSE}
+subs.country.authors.dotplot <- year.countries.df %>% group_by(year,value) %>% summarize(firstauth=sum(firstauth,na.rm=TRUE),total_percountry_peryear=sum(total_percountry_peryear,na.rm=TRUE)) %>% filter(value%in%top15) %>% filter(!is.na(firstauth) | !is.na(total_percountry_peryear)) %>%
+  ggplot(aes(x=year,y=value,
+             color=ifelse(!is.na(firstauth),firstauth,NA))) + 
+  geom_point(aes(size=ifelse(!is.na(total_percountry_peryear),total_percountry_peryear,NA)),alpha=0.95) + 
+  scale_size_continuous(name="Number of \n authors",range=c(3,10),breaks=c(1,5,10,20,40,55)) +
+  scale_color_gradientn(name="Number of \n first author \n publications",
+                        colors=c("grey","#219ebc","#176e83","#023047","#ffb703","#fb9d32","#fb8500")) + 
+  #scale_x_continuous(minor_breaks = seq(from=1960,to=2025,by=5)) +
+  theme_bw() +
+  ggpubr::labs_pubr() +
+  #scale_x_continuous(limits=c(1990,2026), expand = c(0,0)) + 
+  scale_x_continuous(breaks=c(1990,2000,2010,2020),
+                     labels=c("Cumulative \n Prior to 1990",2000,2010,2020),
+                     expand=c(0,0)) + 
+  theme(axis.text.x=element_text(angle=-20,hjust=0)) +
+  theme(legend.position="top")+labs(caption=NULL)  +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        panel.grid.major.y = element_line(color="grey80")
+        ) + 
+  guides(size=guide_legend(nrow=1,theme=theme(legend.key.size = unit(3, "point")))) +
+  labs(title="Authors in papers published each year",
+       caption="Points without a first author publication are colored in grey")
+
+subs.country.authors.dotplot
+
+#ggsave("Figures/t15_AuthorsByYear_dotplot.png",subs.country.authors.dotplot,width=20,height=15,bg="white")
+```
+
+## PubFig: Country authorship over time   
+Figure showing publication patterns for the 15 most productive countries.  
+A. looks at how magnitude and participation in published research focused on the MAR has changed over time. The height of each country's ridge indicates the number of authors per year.   
+B. looks at who is leading research in the MAR. Point size corresponds to the number of authors from that countries in published papers per year. The color of the point represents how many, if any, of those publications are first-author publications. 
+```{r warning=FALSE,message=FALSE}
+country.authorship.wrapplot.2 <- patchwork::wrap_plots(subs.country.authors.dotplot,
+                                                     coauthor.plot
+                                                     )  +
+  plot_layout(widths=c(10,7))  + 
+  plot_annotation(tag_levels="A", tag_suffix = ".") &
+  theme(text=element_text(size=16),
+        plot.title=element_blank(),
+        #legend.box="vertical",
+        legend.position="bottom")
+
+country.authorship.wrapplot.2
+
+#ggsave("Figures/t15_CountryAuthorship_cowplot.png",country.authorship.wrapplot.2,width=14,height=8,bg="white")
+```
+
+Over time, authors from more countries were participating in research focused in the MAR and the number of publications per year increases as well. Authors from a total of 43 countries were involved in publishing research set in the MAR. Of those, 29 countries had at least one first author publication. Authors from Mexico and the United States were the most productive, with 107 and 108 first author publications, respectively. 
+
+# 7. Accessibility  
+Look at the type of paper (we're assuming applied science papers are more directly usable by managers) and accessibility (open access status) over time  
+
+### Figure components  
+```{r}
+paper.lang <- ggplot(author.countries.df) + 
+  geom_bar(aes(x=year,fill=language),color="black") + scale_x_continuous(breaks=c(1990,2000,2010,2020),
+                     labels=c("Cumulative \n Prior to 1990",2000,2010,2020),
+                     expand=c(0,0)) + 
+  theme(axis.text.x=element_text(angle=-20,hjust=0)) +
+  viridis::scale_fill_viridis(name="Published language",option="plasma",discrete=TRUE,begin=0.2,end=0.6)
+
+paper.type <- ggplot(author.countries.df) + 
+  geom_bar(aes(x=year,fill=`Type of Paper`),color="black")  + 
+  scale_y_continuous(expand=c(0,0),limits=c(0,25)) + scale_x_continuous(breaks=c(1990,2000,2010,2020),
+                     labels=c("Cumulative \n Prior to 1990",2000,2010,2020),
+                     expand=c(0,0)) + 
+  theme(axis.text.x=element_text(angle=-20,hjust=0)) +
+  viridis::scale_fill_viridis(name="Type of research",option="plasma",discrete=TRUE,end=0.8) +
+  guides(fill=guide_legend(nrow=2))
+
+paper.oa <- ggplot(author.countries.df) + 
+  geom_bar(aes(x=year,fill=OA),color="black") + 
+  scale_y_continuous(expand=c(0,0),limits=c(0,25)) + scale_x_continuous(breaks=c(1990,2000,2010,2020),
+                     labels=c("Cumulative \n Prior to 1990",2000,2010,2020),
+                     expand=c(0,0)) + 
+  theme(axis.text.x=element_text(angle=-20,hjust=0)) +
+  scale_fill_manual(name="Open access status",
+                    values=c("#335c97","#e09f3e","#a3b369","#9e2a2b","grey50"),
+                    na.value = "grey60") + guides(fill=guide_legend(nrow=2))
+
+paper.lang
+paper.type 
+paper.oa
+
+#ggsave("Figures/Language_barplot.png",paper.lang,width=7,height=5)
+#ggsave("Figures/PaperType_barplot.png",paper.type,width=7,height=5)
+#ggsave("Figures/OA_barplot.png",paper.oa,width=7,height=5)
+```
+
+## PubFig: Accessibility  
+```{r accessplot}
+accessibility.plot <- wrap_plots(paper.type,paper.oa) + 
+  plot_annotation(tag_levels="A",tag_suffix = ".") & theme_bw() + 
+  ggpubr::labs_pubr()  + 
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="bottom",
+        panel.grid.major.y = element_line(color="grey80"),
+        line = element_line(linewidth=0.5)
+        )
+
+accessibility.plot
+
+#ggsave(filename="Figures/Access_cowplot.png",plot=accessibility.plot,height=5,width=15,bg="white")
+```
+
+# 8. Focus    
+
+## Figure components    
+Regional:  
+```{r}
+geo.plot <- pivot_longer(eco.df,cols=starts_with("FocusGeo")) %>% 
+  mutate(RegionOfFocus=trimws(value,which="both"),.before="PaperType",
+  #       RegionOfFocus=case_when(RegionOfFocus=="ExpandMAR" ~ "Larger Region",
+  #                               RegionOfFocus=="MAR" ~ "Entire MAR",
+  #                               .default=RegionOfFocus),
+  #       RegionOfFocus=factor(RegionOfFocus,levels=c("Belize","Guatemala","Honduras","Mexico","Entire MAR","Larger Region"))
+         RegionOfFocus=factor(RegionOfFocus,levels=c("Belize","Mexico","Honduras","Guatemala","MAR","Caribbean"))
+  ) %>%
+  filter(.,!is.na(RegionOfFocus)) %>% 
+  ggplot(aes(x=RegionOfFocus,fill=RegionOfFocus)) +
+  geom_bar(stat="count",position="stack") + 
+  labs(x="Geographic Focus of Paper",
+       y="Number of Papers") + 
+  viridis::scale_fill_viridis(option="C",discrete=TRUE,end=0.9) + 
+  guides(fill=guide_legend()) +
+  theme_bw() +
+  ggpubr::labs_pubr()  +
+  scale_y_continuous(expand = c(0,2)) +
+  #cowplot::theme_minimal_hgrid() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="none",
+        panel.grid.major.y = element_line(color="grey80"),
+        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
+        ) + 
+  labs(title="Geographical study area") 
+
+geo.plot
+```
+```{r}
+geo.table <- pivot_longer(eco.df,cols=starts_with("FocusGeo")) %>% 
+  mutate(RegionOfFocus=trimws(value,which="both"),.before="PaperType"
+  ) %>%
+  filter(.,!is.na(RegionOfFocus)) %>% 
+  group_by(RegionOfFocus) %>% 
+  reframe(NumberOfPapers=n()) %>% 
+  arrange(desc(NumberOfPapers)) %>% flextable::flextable(.) %>% flextable::set_header_labels(RegionOfFocus="Geographical Focus",NumberOfPapers="Number of Papers") %>%
+  #flextable::set_table_properties(layout="autofit") %>% 
+  flextable::theme_zebra() %>%
+  flextable::fontsize(size=15,part="all")
+
+geo.table
+```
+
+Ecosystem:  
+```{r}
+papernum.ecosystem.plot <- geo.df %>%
+  ggplot(aes(x=Focus,fill=Focus)) + geom_bar(stat="count") + 
+  viridis::scale_fill_viridis(discrete=TRUE,option="C",end=0) + 
+  labs(title="Number of papers focusing on different marine ecosystem types") +
+  theme_bw() +
+  ggpubr::labs_pubr()  +
+  scale_y_continuous(expand = c(0,4)) +
+  #cowplot::theme_minimal_hgrid() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        axis.text.x = element_text(angle=45,vjust=1,hjust=1),
+        legend.position="none",
+        panel.grid.major.y = element_line(color="grey80"),
+        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
+        ) 
+
+papernum.ecosystem.plot
+```
+```{r,message=FALSE}
+eco.table <- geo.df %>% group_by(value,Focus) %>% 
+  summarize(n=n()) %>% 
+  pivot_wider(names_from=Focus,values_from=n,values_fill=0) %>% 
+  filter(value%in%top15) %>%
+  column_to_rownames(.,"value") %>% 
+  mutate(Total=rowSums(.,na.rm=TRUE)) %>% #filter(Total>1) %>%
+  rownames_to_column("Country") %>%
+  arrange(desc(Total)) %>% 
+  bind_rows(summarise(.,across(where(is.numeric),sum),
+                      across(where(is.character),~"Total"))) %>% 
+  flextable::flextable(.) %>% 
+  flextable::set_header_labels("Geomorphology"="Geo.") %>%
+  flextable::theme_zebra() %>%
+  #flextable::set_table_properties(layout="autofit") %>% 
+  flextable::fontsize(size=20,part="all") %>% hline(i=15) %>% vline(j=6) %>%
+  flextable::bold(i=16) %>% flextable::italic(j=7)
+```
+```{r}
+country.ecosystem.plot <- geo.df %>%
+  filter(value%in%top15) %>%
+ggplot(., aes(x=year,y=value,
+              height=focus_peryear,fill=value)) + 
+  geom_density_ridges2(scale = 5,linewidth=.1,alpha=0.9,stat="identity",na.rm=TRUE) + 
+facet_wrap(~Focus) +
+  theme_bw() +
+  scale_fill_manual(values=country.pal) + 
+  ggpubr::labs_pubr()  +
+  #scale_x_continuous(limits=c(1990,2026), expand = c(0,0)) +
+  scale_x_continuous(breaks=c(1990,2000,2010,2020),
+                     labels=c("Prior \n to 1990",2000,2010,2020),
+                     expand=c(0,0)) + 
+  theme(axis.text.x=element_text(angle=25,hjust=0.85)) +
+  #cowplot::theme_minimal_hgrid() +
+  theme(text=element_text(size=20),
+        axis.title=element_blank(),
+        legend.position="none",
+        panel.grid.major.y = element_line(color="grey80"),
+        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
+        ) +
+  labs(title="Change in manuscript focus over time by country") 
+
+country.ecosystem.plot
+
+#ggsave("Figures/t15_FocusByCountry_ridgeline.png",country.ecosystem.plot,width=20,height=15)
+```
+
+## PubFig: Ecosystem focus  
+```{r}
+wrap_plots(country.ecosystem.plot+labs(title=NULL),
+           papernum.ecosystem.plot+labs(title=NULL),
+    gen_grob(geo.table, fit = "width")
+  ) + plot_layout(design="
+                  AAB
+                  AAB
+                  AAC") 
+
+#ggsave("Figures/PaperFocus_cowplot.png",width=14,height=8,bg="white")
+```
+```{r}
+wrap_plots(country.ecosystem.plot+labs(title=NULL)+theme(axis.text.x = element_text(angle=-25,vjust=1,hjust=0.1)),
+           plot_spacer(),
+    gen_grob(eco.table, fit = "width"),
+    gen_grob(geo.table, fit = "width")
+  ) + plot_layout(design="
+                  ABC
+                  ABC
+                  ABD",widths=c(8,0.5,4,4)) 
+
+#ggsave("Figures/PaperFocus_v2_cowplot.png",width=14,height=8,bg="white")
+```
+
+# 9. Maps  
+```{r,warning=FALSE,message=FALSE}
+library(geodata)
+globe <- map_data("world")
+globe.mar <- full_join(globe,
+                       (year.countries.df %>% 
+                          group_by(value) %>% 
+                          mutate(firstauth=sum(firstauth,na.rm=TRUE),
+                                 region=str_replace_all(value,"_"," ")) 
+                        ))
+
+cons <- geodata::country_codes()
+```
+```{r,warning=FALSE,message=FALSE}
+mar <- map_data("world",region=c("Mexico","Belize",
+                                 #"Nicaragua","Costa Rica","Panama",
+                                 #"Cuba","Haiti",
+                                # "Venezuela","Colombia",
+                                 #"Dominican Republic",
+                                 #"Puerto Rico","Jamaica",
+                                 #"Trinidad and Tobago",
+                                 #"Cayman Islands",
+                                 #"Virgin Islands",
+                                 #"Barbados"
+                                "Guatemala","Honduras"
+                                 ))
+
+
+# Compute the centroid as the mean longitude and lattitude
+# Used as label coordinate for country's names
+mar.labs <- mar %>%
+  group_by(region) %>%
+  summarise(
+    long = case_when(
+      region%in%c("Guatemala","Mexico","Honduras","Belize") ~ mean(long)),
+      lat = case_when( region%in%c("Guatemala","Mexico","Honduras","Belize")~mean(lat))
+    )
+
+cols <- viridis::viridis(4)
+names(cols) <- c("Belize","Honduras","Mexico","Guatemala")
+scales::show_col(cols)
+```
+
+## PubFig: Research Focus  
+```{r}
+ggplot(mar,aes(x=long,y=lat)) + geom_polygon(aes(group=group,fill=ifelse(region%in%c("Guatemala","Mexico","Honduras","Belize"),region,NA)),color="black")  +
+  scale_fill_manual(values=cols) +
+  theme_void() +
+  theme(legend.position = "none")
+
+#ggsave("Figures/MARcountries_map.png",width=10,height=7)
+```
+```{r}
+geo.df %>% group_by(value) %>% 
+  select(-c(firstauth,n)) %>% 
+  group_by(value,Focus) %>% 
+  reframe(n=sum(focus_peryear)) %>% 
+  filter(value=="Belize" | value == "Honduras" | value=="Guatemala" | value=="Mexico") %>%
+  group_by(value) %>% 
+  mutate(frac=n/sum(n)) %>%
+  ggplot(aes(group=Focus,x="",y=frac,fill=Focus)) + 
+  geom_bar(stat="identity",width=1,color="black") + 
+  coord_polar("y",start=0) + 
+  facet_wrap(~value) + 
+  scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
+  theme_void() 
+
+#ggsave("Figures/MARcountries_focuspiechrt.png",bg="transparent")
+```
+
+# Session Info  
+```{r}
+save.image("~/Documents/GitHubRepos/MARLitReview/.RData")
+sessionInfo()
+```
