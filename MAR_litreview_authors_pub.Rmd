@@ -21,7 +21,13 @@ library(flextable)
 # 2. Read into R  
 There is one line per paper; each line is made up of a list of all coauthor institutions 
 ```{r load,message=FALSE}
-spdsht <- read_xlsx("/Users/lauragivens/Downloads/MAR\ Literature\ Review\ -\ Spreadsheet_Final.xlsx",sheet = "ReviewSummary",col_names = TRUE,skip=2)
+spdsht <- read_excel("/Users/lauragivens/Downloads/MAR\ Literature\ Review\ -\ Spreadsheet_Final.xlsx",sheet = "ReviewSummary",col_names = TRUE,skip=2,col_types = "guess")
+
+spdsht$year <- as.double(spdsht$year)
+
+marmp <- read_xlsx("/Users/lauragivens/Downloads/MAR\ Management\ Plan\ Review\ -\ Spreadsheet.xlsx",sheet = "Latest only",col_names = TRUE,skip=3,col_types="guess")
+
+marmp$Year_Established <- as.double(marmp$Year_Established)
 ```
 
 # 3. Subset spreadsheet to only papers that were identified as relevant  
@@ -236,7 +242,7 @@ geo.df <- eco.df %>%
   mutate(value=case_when(value=="Unsure - flag to review later" ~ NA, #change unsures to NA
                          value=="No" ~ NA, #change No to NA 
                          .default=value),
-         name=case_when(name=="GeoFocus" ~ "Geomorphology",
+         name=case_when(name=="GeoFocus" ~ "Geophysical",
                         name=="Focus on Seagrass" ~ "Seagrass",
                         name=="Focus on Coral" ~ "Coral",
                         name=="Focus on Mangrove" ~ "Mangrove",
@@ -291,7 +297,7 @@ rename("PaperNum"=`Paper #`) %>%
                          str_detect(.,"ention") ~ "Yes",
                          .default=.))) %>% 
   
-  group_by(GeographicFocus) %>% #group_by(GeographicFocus) %>% 
+  group_by(GeographicFocus) %>% 
 mutate(nval=n())  %>% summarize_at(vars(-group_cols()),~sum(!is.na(.))) %>%
   pivot_longer(cols=-GeographicFocus) %>%
   rename("Topic_all"="name",
@@ -314,13 +320,6 @@ mutate(nval=n())  %>% summarize_at(vars(-group_cols()),~sum(!is.na(.))) %>%
                          str_detect(Topic_all,"takeholder") ~ "Community-based",
                         
                         str_detect(Topic_all,"Resilience") ~ "Resilience",
-                        
-                        #str_detect(Topic_all,"ender") ~ "Gender",
-                        # str_detect(Topic_all,"ngage") ~ "Community Engagement",
-                        # str_detect(Topic_all,"nowledge") ~ "Traditional knowledge",
-                        # str_detect(Topic_all,"voluntourism") ~ "Alternative livelihoods",
-                        # str_detect(Topic_all,"liveli") ~ "Alternative livelihoods",
-                        # str_detect(Topic_all,"takeholder") ~ "Community Engagement",
                         
                              .default=Topic_all)) %>%
   mutate(Topic_new=factor(Topic_new,
@@ -849,7 +848,7 @@ eco.table <- geo.df %>% group_by(value,Focus) %>%
   bind_rows(summarise(.,across(where(is.numeric),sum),
                       across(where(is.character),~"Total"))) %>% 
   flextable::flextable(.) %>% 
-  flextable::set_header_labels("Geomorphology"="Geo.") %>%
+  flextable::set_header_labels("Geophysical"="Geo.") %>%
   flextable::theme_zebra() %>%
   #flextable::set_table_properties(layout="autofit") %>% 
   flextable::fontsize(size=20,part="all") %>% hline(i=15) %>% vline(j=6) %>%
@@ -977,7 +976,7 @@ geo.df2 %>%
   scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
   theme_void() + theme(text=element_text(size=18))
 
-ggsave("Figures/MARcountries_focuspiechrt.png",bg="transparent")
+#ggsave("Figures/MARcountries_focuspiechrt.png",bg="transparent")
 ```
 
 ```{r}
@@ -1002,6 +1001,198 @@ geo.df2 %>%
   facet_wrap(~GeographicFocus) + 
   scale_fill_brewer(name="Number of papers",palette="Set3") + 
   theme_bw() + theme(axis.text.x=element_text(angle=45,hjust=1))
+```
+
+```{r}
+marmp %>% select(c(Country,starts_with("Mention"))) %>% 
+  group_by(Country) %>% 
+mutate(nval=n())  %>% 
+  group_by(Country,nval) %>% 
+  summarize_at(vars(-group_cols()),~sum(. =="Yes",na.rm = TRUE)) %>% 
+  mutate(across(starts_with("Mention"), ~./nval )) %>%
+  pivot_longer(cols=c(starts_with("Mention"))) %>%
+  mutate(name=gsub("Mention_","",name),
+         name=gsub("Mentioned_","",name)) %>% 
+  filter(name!="Threat" & name!="CharismaticSpp" & name != "ScientistEngagment") %>%
+  ggplot(aes(x=name,y=value,
+             fill=name)) + 
+  geom_bar(stat="identity",width=1,color="black") + 
+  facet_wrap(~Country) + 
+  scale_fill_brewer(name="Number of papers",palette="Set3") + 
+  theme_bw() + theme(axis.text.x=element_text(angle=45,hjust=1))
+```
+```{r}
+geo.df3 <- eco.df %>% 
+  select(c(`Paper #`,#year,#starts_with("countr"), #keep all the country affiliations of the authors  
+           starts_with("MP"),
+           Policy,Management,
+           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`), 
+           starts_with("Focus"),
+         "Adaptive Management","Seascape","Ridge to Reef",starts_with("Resilience")
+         ) %>% 
+  
+  pivot_longer(cols=c(starts_with("FocusGeo")), #give each geographic focus its own row (so papers occurring in multiple countries will have multiple lines) 
+               values_drop_na = TRUE) %>% 
+  rename("GeographicFocus"=value) %>% 
+  select(-name) %>% #remove column of old column names for "focusgeography"
+
+  mutate(GeographicFocus=str_trim(GeographicFocus,side="both")) %>% #remove leading and trailing whitespace
+  ungroup() %>% 
+  mutate(across(where(is.character), ~ case_when(str_detect(.,"No") ~ NA,
+                         str_detect(.,"N/A") ~ NA,
+                         str_detect(.,"ecommendati") ~ NA, #may need to change this depending on whether we want to consider this a yes or no
+                         str_detect(.,"focus") ~ "Yes",
+                         str_detect(.,"only") ~ NA,
+                         str_detect(.,"fish") ~ "Yes",
+                         str_detect(.,"ention") ~ "Yes",
+                         .default=.))) %>% 
+  
+  group_by(GeographicFocus) %>% 
+mutate(nval=n())  %>% 
+  summarize_at(vars(-group_cols()),~sum(!is.na(.))) %>%
+  
+  mutate("Alternative Livelihoods" = select(.,contains("tourism")) %>% rowSums(na.rm=TRUE),
+         "Community Engagement" = select(.,c(contains("ngagement"),contains("takeholder"))) %>% rowSums(na.rm=TRUE)) %>% 
+  select(.,-c("Focus on Community Engagement",contains("takeholder"),contains("tourism"))) %>%
+  
+  mutate(across(-GeographicFocus, ~./nval )) %>%
+select(-c(`Paper #`,nval) ) %>% 
+  pivot_longer(cols=-GeographicFocus) %>%
+  rename("Topic_all"="name",
+         "Topic_all_num"="value") %>% 
+  ungroup() %>% 
+  
+  mutate("Topic_all" = gsub("Focus on","",Topic_all) %>% str_to_title() %>% str_trim(.,side="both"),
+         "Topic_all" = gsub("Mpa","MPA",Topic_all),
+         "Topic_all" = gsub("Mp","MP",Topic_all),
+         
+         "Topic_all" = case_when(Topic_all=="AdaptiveManagement" ~ "Adaptive Management",
+                                 str_detect(Topic_all,"ender") ~ "Gender Equity",
+                                 str_detect(Topic_all,"iveli") ~ "Alternative Livelihoods",
+                                 str_detect(Topic_all,"nowledge") ~ "Traditional Knowledge",
+                                 str_detect(Topic_all,"esilience") ~ "Resilience",
+                                 
+                                 str_detect(Topic_all,"Geofocus") ~ "Geophysical",
+                                 str_detect(Topic_all,"oral")  ~ "Coral Reefs",
+                                 str_detect(Topic_all,"ish")  ~ "Fish and Fisheries",
+                                 str_detect(Topic_all,"Other Ecosystem") ~ "Other Ecosystems",
+                                 
+         .default=Topic_all) 
+         ) %>% 
+  mutate(Topic_categories = case_when(Topic_all=="Resilience" ~ "Management type",
+                                      Topic_all=="Adaptive Management" ~ "Management type",
+                                      Topic_all=="Seascape" ~ "Management type",
+                                      Topic_all=="Ridge To Reef" ~ "Management type",
+                                      
+                                      Topic_all=="Mangrove" ~ "Thematic focus",
+                                      Topic_all=="Coral Reefs" ~ "Thematic focus",
+                                      Topic_all=="Seagrass" ~ "Thematic focus",
+                                      Topic_all=="Other Ecosystems" ~ "Thematic focus",
+                                      Topic_all=="Geophysical" ~ "Thematic focus",
+                                      Topic_all=="Fish and Fisheries" ~ "Thematic focus",
+                                      
+                                      str_detect(Topic_all,"ender") ~ "Community-based",
+                                      str_detect(Topic_all,"ngage") ~ "Community-based",
+                                      str_detect(Topic_all,"nowledge") ~ "Community-based",
+                                      str_detect(Topic_all,"oluntourism") ~ "Community-based",
+                                      str_detect(Topic_all,"iveli") ~ "Community-based",
+                                      str_detect(Topic_all,"takeholder") ~ "Community-based",
+                                      
+                                      str_detect(Topic_all,"MP") ~ "Policy",
+                                      str_detect(Topic_all,"Policy") ~ "Policy",
+                                      str_detect(Topic_all,"Management") ~ "Policy",
+                                    
+                                      .default="Major topics")) 
+  
+```
+```{r}
+mp.df <- marmp %>% select(c(Country,starts_with("Mention"))) %>% 
+  group_by(Country) %>% 
+mutate(nval=n())  %>% 
+  group_by(Country,nval) %>% 
+  summarize_at(vars(-group_cols()),~sum(. =="Yes",na.rm = TRUE)) %>% 
+  mutate(across(starts_with("Mention"), ~./nval )) %>%
+  
+  pivot_longer(cols=c(starts_with("Mention"))) %>%
+  
+  mutate(name=gsub("Mention_","",name),
+         name=gsub("Mentioned_","",name)) %>% 
+  
+  filter(name!="Threat" & name!="CharismaticSpp" & name != "ScientistEngagement") %>%
+  rename("Topic_all"="name",
+         "Topic_all_num"="value") %>% 
+  
+  mutate("Topic_all" = case_when(Topic_all=="AdaptiveManagement" ~ "Adaptive Management",
+                                 Topic_all=="GenderEquity" ~ "Gender Equity",
+                                 Topic_all=="CommunityEngagement" ~ "Community Engagement",
+                                 Topic_all=="FisheriesSpp" ~ "Fish and Fisheries",
+                                 Topic_all=="LocalKnowledge" ~ "Traditional Knowledge",
+                                 Topic_all=="AlternativeLivelihood" ~ "Alternative Livelihoods",
+                                 str_detect(Topic_all,"oral")  ~ "Coral Reefs",
+         .default=Topic_all),
+         Topic_categories = case_when(Topic_all=="Resilience" ~ "Management type",
+                                      Topic_all=="Adaptive Management" ~ "Management type",
+                                      Topic_all=="Seascape" ~ "Management type",
+                                      Topic_all=="Ridge to Reef" ~ "Management type",
+                                      
+                                      Topic_all=="Mangrove" ~ "Thematic focus",
+                                      Topic_all=="Coral Reefs" ~ "Thematic focus",
+                                      Topic_all=="Seagrass" ~ "Thematic focus",
+                                      Topic_all=="Other Ecosystems" ~ "Thematic focus",
+                                      Topic_all=="Geophysical" ~ "Thematic focus",
+                                      Topic_all=="Fish and Fisheries" ~ "Thematic focus",
+                                      
+                                      str_detect(Topic_all,"ender") ~ "Community-based",
+                                      str_detect(Topic_all,"ngage") ~ "Community-based",
+                                      str_detect(Topic_all,"nowledge") ~ "Community-based",
+                                      str_detect(Topic_all,"oluntourism") ~ "Community-based",
+                                      str_detect(Topic_all,"iveli") ~ "Community-based",
+                                      str_detect(Topic_all,"takeholder") ~ "Community-based",
+                                    
+                                      .default="Major topics")
+         ) %>% select(-nval) %>% rename("GeographicFocus"="Country")
+```
+```{r}
+comparison.df <- bind_rows(geo.df3,mp.df,.id="id") %>% 
+  mutate(id=case_when(id==1 ~ "Papers",.default="Management Plans"))
+```
+```{r}
+comparison.df  %>%
+  filter(GeographicFocus!="MAR" & GeographicFocus!="Caribbean" & Topic_categories!="Thematic focus" & Topic_categories!="Policy" & Topic_all != "Ridge To Reef") %>%
+  ggplot(aes(x=Topic_all,y=Topic_all_num,
+             fill=id)) + 
+  geom_bar(stat="identity",position="dodge",width=0.9,color="black") + 
+  facet_wrap(~GeographicFocus,nrow=1) + 
+  #facet_grid(GeographicFocus ~ Topic_categories,scales="free_x") +
+  scale_fill_brewer(name="Keyword occurrence in",palette="Accent") + 
+  scale_y_continuous(limits=c(0,NA),expand=c(0,0)) +
+  ggpubr::theme_pubr() + 
+  theme(axis.text.x=element_text(angle=60,hjust=1),
+        plot.background = element_rect(fill="transparent",color="transparent"),
+        panel.background = element_rect(fill="transparent",color="transparent"),
+        legend.background = element_rect(fill="transparent",color="transparent")
+        ) + 
+  labs(x="",y="Relative Abundance")
+
+
+#ggsave("Figures/Paper_MP_comparison.png",bg="transparent",width=16,height=5)
+```
+```{r}
+comparison.df %>% 
+  filter(GeographicFocus!="MAR" & GeographicFocus!="Caribbean" & id=="Papers") %>% 
+   filter(Topic_categories=="Thematic focus")  %>%
+  #filter(Topic_categories=="Thematic focus" | Topic_categories=="Policy")  %>%
+  group_by(GeographicFocus) %>% 
+  mutate(Topic_new_num=Topic_all_num/sum(Topic_all_num)) %>%
+  
+  ggplot(aes(group=Topic_all,x="",y=Topic_new_num,fill=Topic_all)) + 
+  geom_bar(stat="identity",width=1,size=1,color="black") + 
+  coord_polar("y",start=0) + 
+  facet_wrap(~GeographicFocus) + 
+  scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
+  theme_void() + theme(text=element_text(size=18)) + guides(fill=guide_legend(direction="horizontal",position="top"))
+
+#ggsave("Figures/MARcountries_focuspiechrt.png",bg="transparent",width=12)
 ```
 
 # Session Info  
