@@ -268,7 +268,8 @@ geo.df2 <- eco.df %>%
            starts_with("MP"),
            Policy,Management,
            GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`), 
-           starts_with("Focus")
+           starts_with("Focus"),
+         "Adaptive Management","Seascape","Ridge to Reef",starts_with("Resilience")
          ) %>% 
 rename("PaperNum"=`Paper #`) %>%
   
@@ -278,24 +279,26 @@ rename("PaperNum"=`Paper #`) %>%
   select(-name) %>% #remove column of old column names for "focusgeography"
 
   mutate(GeographicFocus=str_trim(GeographicFocus,side="both")) %>% #remove leading and trailing whitespace
-  ungroup() %>%
-
+  ungroup() %>% 
  # mutate(Num=1:n(),.after=PaperNum) %>% 
   select(-PaperNum) %>%
   mutate(across(where(is.character), ~ case_when(str_detect(.,"No") ~ NA,
-                         str_detect(.,"ecommendati") ~ NA,
+                         str_detect(.,"N/A") ~ NA,
+                         str_detect(.,"ecommendati") ~ NA, #may need to change this depending on whether we want to consider this a yes or no
                          str_detect(.,"focus") ~ "Yes",
                          str_detect(.,"only") ~ NA,
                          str_detect(.,"fish") ~ "Yes",
+                         str_detect(.,"ention") ~ "Yes",
                          .default=.))) %>% 
   
-  group_by(GeographicFocus) %>% summarize_at(vars(-group_cols()),~sum(!is.na(.))) %>%
+  group_by(GeographicFocus) %>% #group_by(GeographicFocus) %>% 
+mutate(nval=n())  %>% summarize_at(vars(-group_cols()),~sum(!is.na(.))) %>%
   pivot_longer(cols=-GeographicFocus) %>%
   rename("Topic_all"="name",
          "Topic_all_num"="value") %>% 
   ungroup() %>% 
   mutate("Topic_new"=case_when(str_detect(Topic_all,"MP") ~ "Policy",
-                             str_detect(Topic_all,"Management") ~ "Policy",
+                             Topic_all=="Management" ~ "Policy",
                              str_detect(Topic_all,"GeoFocus") ~ "Geophysical",
                         str_detect(Topic_all,"eagrass") ~ "Seagrass",
                          str_detect(Topic_all,"oral")  ~ "Coral Reefs",
@@ -309,6 +312,8 @@ rename("PaperNum"=`Paper #`) %>%
                          str_detect(Topic_all,"voluntourism") ~ "Community-based",
                          str_detect(Topic_all,"liveli") ~ "Community-based",
                          str_detect(Topic_all,"takeholder") ~ "Community-based",
+                        
+                        str_detect(Topic_all,"Resilience") ~ "Resilience",
                         
                         #str_detect(Topic_all,"ender") ~ "Gender",
                         # str_detect(Topic_all,"ngage") ~ "Community Engagement",
@@ -325,10 +330,19 @@ rename("PaperNum"=`Paper #`) %>%
                                    "Seagrass",
                                    "Geophysical",
                                    "Policy",
-                                   "Community-based"))) 
+                                   "Community-based",
+                                   "Adaptive Management",
+                                   "Seascape",
+                                   "Ridge to Reef",
+                                   "Resilience",
+                                   "nval"))) %>% 
+  mutate(Topic_categories = case_when(Topic_new=="Resilience" ~ "Management type",
+                                      Topic_new=="Adaptive Management" ~ "Management type",
+                                      Topic_new=="Seascape" ~ "Management type",
+                                      Topic_new=="Ridge to Reef" ~ "Management type",
+                                      Topic_new=="nval" ~ "Total per Region",
+                                      .default="Major topics")) 
 ```
-
-
 
 # Analysis  
 
@@ -949,6 +963,7 @@ ggplot(mar,aes(x=long,y=lat)) + geom_polygon(aes(group=group,fill=ifelse(region%
 ```
 ```{r}
 geo.df2 %>%
+  filter(Topic_categories != "Management type" & Topic_categories != "Total per Region") %>%
   group_by(GeographicFocus,Topic_new) %>% 
   reframe(Topic_new_num=sum(Topic_all_num)) %>%
   
@@ -956,11 +971,37 @@ geo.df2 %>%
   group_by(GeographicFocus) %>% 
   mutate(frac=Topic_new_num/sum(Topic_new_num)) %>%
   ggplot(aes(group=Topic_new,x="",y=frac,fill=Topic_new)) + 
-  geom_bar(stat="identity",width=1,color="black") + 
+  geom_bar(stat="identity",width=1,size=2,color="black") + 
   coord_polar("y",start=0) + 
   facet_wrap(~GeographicFocus) + 
   scale_fill_brewer(name="Proportion of papers",palette="Set3") + 
-  theme_void() #ggsave("Figures/MARcountries_focuspiechrt.png",bg="transparent")
+  theme_void() + theme(text=element_text(size=18))
+
+ggsave("Figures/MARcountries_focuspiechrt.png",bg="transparent")
+```
+
+```{r}
+geo.df2 %>%
+  filter(Topic_categories == "Management type" | Topic_categories == "Total per Region") %>%
+  
+  group_by(GeographicFocus,Topic_new) %>% 
+ mutate(Topic_new_num=sum(Topic_all_num)) %>%
+  filter(GeographicFocus=="Belize" | GeographicFocus == "Honduras" | GeographicFocus=="Guatemala" | GeographicFocus=="Mexico") %>%
+  
+  #group_by(GeographicFocus) %>% 
+ # mutate(nval=case_when(Topic_categories=="Total per Region" ~ Topic_new_num,
+  #                      .default=1)) %>% 
+  
+ # mutate(frac=Topic_new_num/nval) %>%
+  filter(Topic_new!="nval") %>%
+  ggplot(aes(group=Topic_new,
+             x=Topic_new,y=Topic_new_num,
+             #x="",y=frac,
+             fill=Topic_new)) + 
+  geom_bar(stat="identity",width=1,color="black") + 
+  facet_wrap(~GeographicFocus) + 
+  scale_fill_brewer(name="Number of papers",palette="Set3") + 
+  theme_bw() + theme(axis.text.x=element_text(angle=45,hjust=1))
 ```
 
 # Session Info  
