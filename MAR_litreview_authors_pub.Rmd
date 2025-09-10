@@ -681,8 +681,6 @@ mutate(nval=n()) %>% #mp per year per country
 # Analysis  
 
 ### Analysis: Authorship  
-
-##### Number of countries  
 Where are most authors coming from?  
 
 *How many countries have been involved in scientific articles regarding the MAR?*    
@@ -756,7 +754,7 @@ length(year.countries.df %>% filter(year > 2006) %>% .$value %>% unique())
 year.countries.df %>% filter(year > 2006) %>% .$value %>% unique()
 ```
 
-##### Number of first author countries?  
+Number of first author countries?  
 ```{r}
 firstauthcountries.df %>% .$first_authors %>% unique() %>% length()
 ```
@@ -768,7 +766,7 @@ firstauthcountries.df %>% filter(!duplicated(first_authors)) %>% arrange(desc(To
 #firstauthcountries.df %>% filter(!duplicated(first_authors)) %>% .$TotalPapersCountry %>% sum()
 ```
 
-##### Percent authorship    
+Percent authorship    
 ```{r participationdf}
 participation.df <- author.countries.df %>% 
   group_by(Oldyear,marfirst) %>% 
@@ -813,10 +811,14 @@ participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>%
   .$leadperc %>% mean(.,na.rm=TRUE)
 ```
 This increased to 48.55% of papers including someone from within country, 42.8% of which were led by the first author within country.  
+```{r}
+participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>%
+  mutate(n=Lead/sum(Lead,Coauthor,na.rm=TRUE)) %>% 
+  .$n %>% mean()
+```
 
-### Analysis: Percent access    
-
-#### Percent basic vs percent applied  
+### Analysis: Access    
+Percent basic vs percent applied  
 ```{r applieddf,warning=FALSE,message=FALSE}
 applied.df <- author.countries.df %>% group_by(year,`Type of Paper`) %>% 
   summarize(n=n()) %>% 
@@ -833,8 +835,7 @@ applied.df
 ```{r}
 applied.df %>% filter(rownames(.)>2014) %>% .$perc %>% mean()
 ```
-
-#### Percent open access  
+Open access  
 ```{r oadf}
 oa.df <- author.countries.df %>% group_by(year, OA) %>% 
   summarize(n=n())%>% 
@@ -854,32 +855,8 @@ oa.df %>% filter(rownames(.)>2014) %>% .$perc %>% mean()
 arrange(oa.df,desc(perc))[1:10,]
 ```
 
-#### Percent English  
-```{r langdf}
-lang.df <- author.countries.df %>% group_by(year,language) %>% 
-  summarize(n=n()) %>% 
-  pivot_wider(names_from=language,values_from="n",values_fill=0) %>% 
-  column_to_rownames(.,"year") %>% 
-  mutate(total=rowSums(.,na.rm=TRUE),
-         perc=round(Spanish/total,digits=4)
-         ) 
-lang.df
-```
-```{r}
-mean(lang.df$perc)
-```
-Across all years with more than one published paper, only 3.42% of papers were published in Spanish  
-```{r}
-lang.df %>% filter(total>1) %>% .$perc %>% mean()
-```
-In the last decade, only 1.36% of papers were published in Spanish    
-```{r}
-lang.df %>% filter(rownames(.) > 2014) %>% .$perc %>% mean()
-```
-
 ### Analysis: Ecosystem    
-
-#### Percentage by ecosystem  
+ 
 Percentage of papers focused on each ecosystem - is there a bias?  
 ```{r}
 geo.df %>% group_by(Focus) %>% summarize(n=n(),
@@ -893,27 +870,12 @@ geo.df %>% group_by(year,Focus) %>%
          perc=round(n/x,digits=4)) 
 ```
 
-#### Percentage by country    
-```{r}
-pivot_longer(eco.df,cols=starts_with("FocusGeo")) %>% 
-  mutate(RegionOfFocus=trimws(value,which="both"),.before="PaperType") %>%
-  filter(.,!is.na(RegionOfFocus)) %>% 
-  group_by(RegionOfFocus) %>% 
-  reframe(NumberOfPapers=n()) %>% 
-  arrange(desc(NumberOfPapers)) %>%  #aov(NumberOfPapers~RegionOfFocus,.) %>% TukeyHSD()
-  mutate(perc=NumberOfPapers/sum(NumberOfPapers)) 
-```
+# 6. Figures    
 
-```{r}
-geo.df %>% group_by(value,Focus) %>% 
-  summarize(n=n()) %>% 
-  filter(value%in%top15) #%>% aov(n~value,.) %>% TukeyHSD()
-```
+## Country authorship    
+Over time, authors from more countries were participating in research focused in the MAR and the number of publications per year increases as well. Authors from a total of 43 countries were involved in publishing research set in the MAR. Of those, 29 countries had at least one first author publication. Authors from Mexico and the United States were the most productive, with 107 and 108 first author publications, respectively. 
 
-
-# 6. Countries  
-
-## Figure components  
+(all countries)  
 ```{r countryauthorsdotplot,message=FALSE}
 country.authors.dotplot <-  year.countries.df %>% group_by(year,value) %>% summarize(firstauth=sum(firstauth,na.rm=TRUE),total_percountry_peryear=sum(total_percountry_peryear,na.rm=TRUE)) %>% 
   ggplot(aes(x=year,y=value,color=firstauth)) + 
@@ -938,7 +900,41 @@ country.authors.dotplot
 
 ##ggsave("Figures/AuthorsByYear_dotplot.png",country.authors.dotplot,width=20,height=15)
 ```
+(top 15 countries)  
+```{r t15coauthorplot,warning=FALSE,message=FALSE}
+subs.country.authors.dotplot <- year.countries.df %>% group_by(year,value) %>% summarize(firstauth=sum(firstauth,na.rm=TRUE),total_percountry_peryear=sum(total_percountry_peryear,na.rm=TRUE)) %>% filter(value%in%top15) %>% filter(!is.na(firstauth) | !is.na(total_percountry_peryear)) %>%
+  ggplot(aes(x=year,y=value,
+             color=ifelse(!is.na(firstauth),firstauth,NA))) + 
+  geom_point(aes(size=ifelse(!is.na(total_percountry_peryear),total_percountry_peryear,NA)),alpha=0.95) + 
+  scale_size_continuous(name="Number of \n authors",range=c(3,10),breaks=c(1,5,10,20,40,55)) +
+  scale_color_gradientn(name="Number of \n first author \n publications",
+                        colors=c("grey","#219ebc","#176e83","#023047","#ffb703","#fb9d32","#fb8500"
+                                 ),
+                         breaks=c(0,1,3,5,7,9),
+                        labels=c(0,1,3,5,7,9)) + 
+  #scale_x_continuous(minor_breaks = seq(from=1960,to=2025,by=5)) +
+  theme_bw() +
+  ggpubr::labs_pubr() +
+  #scale_x_continuous(limits=c(1990,2026), expand = c(0,0)) + 
+  scale_x_continuous(breaks=c(1990,2000,2010,2020),
+                     labels=c("Cumulative \n Prior to 1990",2000,2010,2020),
+                     expand=c(0,0)) + 
+  theme(axis.text.x=element_text(angle=-20,hjust=0)) +
+  theme(legend.position="top")+labs(caption=NULL)  +
+  theme(text=element_text(size=20),
+        family="Helvetica",
+        axis.title=element_blank(),
+        panel.grid.major.y = element_line(color="grey80")
+        ) + 
+  guides(size=guide_legend(nrow=1,theme=theme(legend.key.size = unit(3, "point")))) +
+   guides(color=guide_colorbar(barwidth=16)) +
+  labs(title="Authorship of papers published each year",
+       caption="Points without a first author from that country are colored in grey")
 
+subs.country.authors.dotplot
+
+#ggsave("Figures/t15_AuthorsByYear_dotplot.png",subs.country.authors.dotplot,      width=10,height=6,bg="white")
+```
 In the previous figure we saw how the number of first author publications has changed, but what about overall?
 ```{r coauthorplot,warning=FALSE}
 coauthor.plot <- author.countries.df %>% 
@@ -1000,54 +996,9 @@ coauthor.plot2
 
 ```
 
-
-```{r t15coauthorplot,warning=FALSE,message=FALSE}
-subs.country.authors.dotplot <- year.countries.df %>% group_by(year,value) %>% summarize(firstauth=sum(firstauth,na.rm=TRUE),total_percountry_peryear=sum(total_percountry_peryear,na.rm=TRUE)) %>% filter(value%in%top15) %>% filter(!is.na(firstauth) | !is.na(total_percountry_peryear)) %>%
-  ggplot(aes(x=year,y=value,
-             color=ifelse(!is.na(firstauth),firstauth,NA))) + 
-  geom_point(aes(size=ifelse(!is.na(total_percountry_peryear),total_percountry_peryear,NA)),alpha=0.95) + 
-  scale_size_continuous(name="Number of \n authors",range=c(3,10),breaks=c(1,5,10,20,40,55)) +
-  scale_color_gradientn(name="Number of \n first author \n publications",
-                        colors=c("grey","#219ebc","#176e83","#023047","#ffb703","#fb9d32","#fb8500"
-                                 ),
-                         breaks=c(0,1,3,5,7,9),
-                        labels=c(0,1,3,5,7,9)) + 
-  #scale_x_continuous(minor_breaks = seq(from=1960,to=2025,by=5)) +
-  theme_bw() +
-  ggpubr::labs_pubr() +
-  #scale_x_continuous(limits=c(1990,2026), expand = c(0,0)) + 
-  scale_x_continuous(breaks=c(1990,2000,2010,2020),
-                     labels=c("Cumulative \n Prior to 1990",2000,2010,2020),
-                     expand=c(0,0)) + 
-  theme(axis.text.x=element_text(angle=-20,hjust=0)) +
-  theme(legend.position="top")+labs(caption=NULL)  +
-  theme(text=element_text(size=20),
-        family="Helvetica",
-        axis.title=element_blank(),
-        panel.grid.major.y = element_line(color="grey80")
-        ) + 
-  guides(size=guide_legend(nrow=1,theme=theme(legend.key.size = unit(3, "point")))) +
-   guides(color=guide_colorbar(barwidth=16)) +
-  labs(title="Authorship of papers published each year",
-       caption="Points without a first author from that country are colored in grey")
-
-subs.country.authors.dotplot
-
-#ggsave("Figures/t15_AuthorsByYear_dotplot.png",subs.country.authors.dotplot,
-       width=10,height=6,bg="white")
-```
-
-## PubFig: Country authorship over time   
-Figure showing publication patterns for the 15 most productive countries.  
-A. looks at how magnitude and participation in published research focused on the MAR has changed over time. The height of each country's ridge indicates the number of authors per year.   
-B. looks at who is leading research in the MAR. Point size corresponds to the number of authors from that countries in published papers per year. The color of the point represents how many, if any, of those publications are first-author publications. 
-
-Over time, authors from more countries were participating in research focused in the MAR and the number of publications per year increases as well. Authors from a total of 43 countries were involved in publishing research set in the MAR. Of those, 29 countries had at least one first author publication. Authors from Mexico and the United States were the most productive, with 107 and 108 first author publications, respectively. 
-
-# 7. Accessibility  
+##Accessibility  
 Look at the type of paper (we're assuming applied science papers are more directly usable by managers) and accessibility (open access status) over time  
 
-### Figure components  
 ```{r paperplots}
 paper.lang <- ggplot(author.countries.df) + 
   geom_bar(aes(x=year,fill=language),color="black") + scale_x_continuous(breaks=c(1990,2000,2010,2020),
@@ -1085,7 +1036,6 @@ paper.oa
 #ggsave("Figures/OA_barplot.png",paper.oa,width=7,height=5)
 ```
 
-## PubFig: Accessibility  
 ```{r accessplot}
 accessibility.plot <- wrap_plots((paper.type + 
                                     ylab("Number of papers") + xlab("")),
@@ -1106,37 +1056,9 @@ accessibility.plot
 #ggsave(filename="Figures/Access_cowplot.png",plot=accessibility.plot,height=5,width=15,bg="white")
 ```
 
-# 8. Focus    
+## Focus    
 
-## Figure components    
 Regional:  
-```{r geofocusbarplot}
-geo.plot <- pivot_longer(eco.df,cols=starts_with("FocusGeo")) %>% 
-  mutate(RegionOfFocus=trimws(value,which="both"),.before="PaperType",
-         RegionOfFocus=factor(RegionOfFocus,levels=c("Belize","Mexico","Honduras","Guatemala","MAR","Caribbean"))
-  ) %>%
-  filter(.,!is.na(RegionOfFocus)) %>% 
-  ggplot(aes(x=RegionOfFocus,fill=RegionOfFocus)) +
-  geom_bar(stat="count",position="stack") + 
-  labs(x="Geographic Focus of Paper",
-       y="Number of Papers") + 
-  viridis::scale_fill_viridis(option="C",discrete=TRUE,end=0.9) + 
-  guides(fill=guide_legend()) +
-  theme_bw() +
-  ggpubr::labs_pubr()  +
-  scale_y_continuous(expand = c(0,2)) +
-  #cowplot::theme_minimal_hgrid() +
-  theme(text=element_text(size=10),
-        family="Helvetica",
-        axis.title=element_blank(),
-        legend.position="none",
-        panel.grid.major.y = element_line(color="grey80"),
-        panel.grid.minor.x = element_line(linetype=2,color="lightgrey",linewidth = 0.25)
-        ) + 
-  labs(title="Geographical study area") 
-
-geo.plot
-```
 ```{r geofocustable}
 geo.table <- pivot_longer(eco.df,cols=starts_with("FocusGeo")) %>% 
   mutate(RegionOfFocus=trimws(value,which="both"),.before="PaperType"
@@ -1208,8 +1130,6 @@ names(labs.hm) <- c("<1991","1991-1995", "1996-2000","2001-2005","2006-2010","20
 labs.hm10 <- c(1,2,3,4,5)
 names(labs.hm10) <- c("<1991","1991-2000","2001-2010","2011-2020",">2021")
 ```
-
-## PubFig: Heatmap MP comp  
 
 ### 5 year increment  
 ```{r marfocushm}  
@@ -1510,6 +1430,51 @@ wrap_plots(MARcountries_heatmap_10yr,
            nrow=3) + plot_layout(heights=c(5,1,7))
 
 #ggsave("Figures/MARcountries_mp_table_10yr_perc.png",width=10,height=10)
+```
+
+# 7. Summary  
+How many countries have been involved in scientific articles regarding the MAR?    
+```{r}
+length(all.countries[!is.na(all.countries)])
+#43 countries  
+```
+How many countries were involved prior to 2006?  
+```{r}
+year.countries.df %>% filter(year < 2006) %>% .$value %>% unique() %>% length()
+```
+Most productive countries overall? (including first and coauthors)  
+```{r}
+top15
+#Mexico     USA        UK         Australia  Germany    Canada     Belize     Spain    Honduras   Panama     Guatemala  Austria    Costa_Rica Chile      Norway
+```
+Number of papers published by the most productive countries?  
+```{r}
+#number of papers published by countries in the top 15 most productive category
+year.countries.df %>% filter(value %in%top15) %>% 
+  select(c(value,total_percountry,total_firstauth)) %>% 
+  filter(!is.na(total_percountry) & !is.na(total_firstauth)) %>%
+  .$total_firstauth %>% sum()
+```
+Remainder:   
+```{r}
+#number of papers published by countries not in that category  
+year.countries.df %>% filter(!value %in%top15) %>% 
+  select(c(value,total_percountry,total_firstauth)) %>% 
+  filter(!is.na(total_percountry) & !is.na(total_firstauth)) %>% .$total_firstauth %>% sum()
+```
+(total percentage of papers published by productive countries):  
+289/(289+18)  
+
+In the last decade, 48.55% of papers have included someone from within country. However, 42.8% of the papers were led by a first author primarily affiliated with an instutition within country (87.34% of the papers that included an author from within country)   
+```{r}
+participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>% 
+  .$perc %>% mean(.,na.rm=TRUE)
+participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>% 
+  .$leadperc %>% mean(.,na.rm=TRUE)
+
+participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>%
+  mutate(n=Lead/sum(Lead,Coauthor,na.rm=TRUE)) %>% 
+  .$n %>% mean()
 ```
 
 # Session Info  
