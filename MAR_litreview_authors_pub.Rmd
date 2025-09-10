@@ -689,7 +689,7 @@ Where are most authors coming from?
 ```{r}
 length(all.countries[!is.na(all.countries)])
 ```
-45 countries  
+43 countries  
 
 *Most productive countries overall? (including first and coauthors)*  
 ```{r topcountries}
@@ -715,13 +715,20 @@ Minor changes after US and Mexico, but nothing substantial I think.
 
 How productive are these countries?  
 ```{r}
-year.countries.df %>% filter(value %in%top15) %>% select(c(value,total_percountry,total_firstauth)) %>% 
+#number of papers published by countries in the top 15 most productive category
+year.countries.df %>% filter(value %in%top15) %>% 
+  select(c(value,total_percountry,total_firstauth)) %>% 
+  filter(!is.na(total_percountry) & !is.na(total_firstauth)) %>%
+  .$total_firstauth %>% sum()
+
+#number of papers published by countries not in that category  
+year.countries.df %>% filter(!value %in%top15) %>% 
+  select(c(value,total_percountry,total_firstauth)) %>% 
   filter(!is.na(total_percountry) & !is.na(total_firstauth)) %>% .$total_firstauth %>% sum()
 
-year.countries.df %>% filter(!value %in%top15) %>% select(c(value,total_percountry,total_firstauth)) %>% 
-  filter(!is.na(total_percountry) & !is.na(total_firstauth)) %>% .$total_firstauth %>% sum()
-
-year.countries.df %>% filter(value %in%top15) %>% select(c(value,total_percountry,total_firstauth)) %>% 
+#table for top 15 
+year.countries.df %>% filter(value %in%top15) %>%
+  select(c(value,total_percountry,total_firstauth)) %>% 
   filter(!is.na(total_percountry) & !is.na(total_firstauth))
 ```
 the top 15 countries encompassed 298 of the papers, or 94% of the total papers
@@ -753,8 +760,8 @@ year.countries.df %>% filter(year > 2006) %>% .$value %>% unique()
 ```{r}
 firstauthcountries.df %>% .$first_authors %>% unique() %>% length()
 ```
-30 different countries were first authors  
-and of those 30, the USA had the most number of first author publications closely followed by Mexico, with the UK in a distant 3rd 
+29 different countries were first authors  
+and of those 29, the USA had the most number of first author publications closely followed by Mexico, with the UK in a distant 3rd 
 ```{r}
 firstauthcountries.df %>% filter(!duplicated(first_authors)) %>% arrange(desc(TotalPapersCountry)) %>% .$first_authors
 #double check that math is right: does TotalPapersCountry add up to the total number of papers? 
@@ -795,7 +802,7 @@ participation.df %>% filter(Oldyear>2006 & Oldyear<2014) %>% .$perc %>% mean(.,n
 participation.df %>% filter(Oldyear>2006 & Oldyear<2014) %>% .$leadperc %>% mean(.,na.rm=TRUE)
 ```
 
-In the preceding decade, 43.45% of papers have included someone from within country, 31.45% of which were led by the first author.    
+In the preceding decade, 42.49% of papers have included someone from within country, 30.91% of which were led by the first author.    
 
 ```{r}
 participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>% 
@@ -805,7 +812,7 @@ participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>%
 participation.df %>% filter(Oldyear>2014 & Oldyear <2025) %>% 
   .$leadperc %>% mean(.,na.rm=TRUE)
 ```
-This increased to 48.42% of papers including someone from within country, 42.79% of which were led by the first author within country.  
+This increased to 48.55% of papers including someone from within country, 42.8% of which were led by the first author within country.  
 
 ### Analysis: Percent access    
 
@@ -929,7 +936,7 @@ country.authors.dotplot <-  year.countries.df %>% group_by(year,value) %>% summa
 
 country.authors.dotplot
 
-#ggsave("Figures/AuthorsByYear_dotplot.png",country.authors.dotplot,width=20,height=15)
+##ggsave("Figures/AuthorsByYear_dotplot.png",country.authors.dotplot,width=20,height=15)
 ```
 
 In the previous figure we saw how the number of first author publications has changed, but what about overall?
@@ -955,7 +962,7 @@ ggplot(.) +
 
 coauthor.plot
 
-ggsave("Figures/RegionalAuthorship_lineplot.png",coauthor.plot,width=7,height=5)
+#ggsave("Figures/RegionalAuthorship_lineplot.png",coauthor.plot,width=7,height=5)
 ```
 
 ```{r}
@@ -989,7 +996,7 @@ ggplot(.) +
                      )
 
 coauthor.plot2
-ggsave("Figures/RegionalAuthorship_lineplot2.png",coauthor.plot2,width=7,height=5)
+#ggsave("Figures/RegionalAuthorship_lineplot2.png",coauthor.plot2,width=7,height=5)
 
 ```
 
@@ -1026,7 +1033,7 @@ subs.country.authors.dotplot <- year.countries.df %>% group_by(year,value) %>% s
 
 subs.country.authors.dotplot
 
-ggsave("Figures/t15_AuthorsByYear_dotplot.png",subs.country.authors.dotplot,
+#ggsave("Figures/t15_AuthorsByYear_dotplot.png",subs.country.authors.dotplot,
        width=10,height=6,bg="white")
 ```
 
@@ -1073,9 +1080,9 @@ paper.lang
 paper.type 
 paper.oa
 
-ggsave("Figures/Language_barplot.png",paper.lang,width=7,height=5)
-ggsave("Figures/PaperType_barplot.png",paper.type,width=7,height=5)
-ggsave("Figures/OA_barplot.png",paper.oa,width=7,height=5)
+#ggsave("Figures/Language_barplot.png",paper.lang,width=7,height=5)
+#ggsave("Figures/PaperType_barplot.png",paper.type,width=7,height=5)
+#ggsave("Figures/OA_barplot.png",paper.oa,width=7,height=5)
 ```
 
 ## PubFig: Accessibility  
@@ -1096,7 +1103,7 @@ accessibility.plot <- wrap_plots((paper.type +
 
 accessibility.plot
 
-ggsave(filename="Figures/Access_cowplot.png",plot=accessibility.plot,height=5,width=15,bg="white")
+#ggsave(filename="Figures/Access_cowplot.png",plot=accessibility.plot,height=5,width=15,bg="white")
 ```
 
 # 8. Focus    
@@ -1247,7 +1254,7 @@ facet_wrap(~GeographicFocus,nrow=1) +
         axis.text.x=element_text(angle=90,hjust=0.85)
         ) #+labs(title="Change in manuscript focus over time by country") 
 MARcountries_heatmap
-ggsave("Figures/MARcountries_heatmap.png",MARcountries_heatmap,width=15,height=7)
+#ggsave("Figures/MARcountries_heatmap.png",MARcountries_heatmap,width=15,height=7)
 ```
 
 ```{r}
@@ -1297,7 +1304,7 @@ facet_wrap(~Country,nrow=1) +
         axis.text.x=element_text(angle=90,hjust=0.85)
         ) #+labs(title="Change in manuscript focus over time by country") 
 MARmp_heatmap
-ggsave("Figures/MARmp_heatmap.png",MARmp_heatmap,width=15,height=7)
+#ggsave("Figures/MARmp_heatmap.png",MARmp_heatmap,width=15,height=7)
 ```
 ```{r,warning=FALSE}
 wrap_plots(MARcountries_heatmap,
@@ -1305,7 +1312,7 @@ wrap_plots(MARcountries_heatmap,
            nrow=2) + 
   plot_annotation(tag_levels="A",tag_suffix = ".")
 
-ggsave("Figures/MARcountries_mp_heatmap.png",width=15,height=15)
+#ggsave("Figures/MARcountries_mp_heatmap.png",width=15,height=15)
 ```
 
 ### 10 year increment  
@@ -1346,7 +1353,7 @@ facet_wrap(~GeographicFocus,nrow=1) +
         axis.text.x=element_text(angle=90,hjust=0.85)
         ) #+labs(title="Change in manuscript focus over time by country") 
 MARcountries_heatmap_10yr
-ggsave("Figures/MARcountries_heatmap_10yr.png",MARcountries_heatmap_10yr,width=15,height=7)
+#ggsave("Figures/MARcountries_heatmap_10yr.png",MARcountries_heatmap_10yr,width=15,height=7)
 ```
 
 ```{r}
@@ -1383,7 +1390,7 @@ facet_wrap(~Country,nrow=1) +
         axis.text.x=element_text(angle=90,hjust=0.85)
         ) #+labs(title="Change in manuscript focus over time by country") 
 MARmp_heatmap_10yr
-ggsave("Figures/MARmp_heatmap_10yr.png",MARmp_heatmap_10yr,width=15,height=7)
+#ggsave("Figures/MARmp_heatmap_10yr.png",MARmp_heatmap_10yr,width=15,height=7)
 ```
 
 ```{r,warning=FALSE}
@@ -1392,7 +1399,7 @@ wrap_plots(MARcountries_heatmap_10yr,
            nrow=2) + 
   plot_annotation(tag_levels="A",tag_suffix = ".")
 
-#ggsave("Figures/MARcountries_mp_heatmap_10yr.png",width=15,height=15)
+##ggsave("Figures/MARcountries_mp_heatmap_10yr.png",width=15,height=15)
 ```
 
 ### Percentage   
@@ -1433,7 +1440,7 @@ facet_wrap(~Country,nrow=1) +
         ) + guides(fill=guide_colorbar(barheight=16,reverse=TRUE,title=""))
 MARmp_heatmap_10yr_perc 
 
-ggsave("Figures/MARmp_heatmap_10yr_perc.png",MARmp_heatmap_10yr_perc,width=15,height=7)
+#ggsave("Figures/MARmp_heatmap_10yr_perc.png",MARmp_heatmap_10yr_perc,width=15,height=7)
 ```
 ```{r}
 MARmp_perc_long <- MARmp_hm_df_10yr_perc %>%
@@ -1493,7 +1500,7 @@ wrap_plots(MARcountries_heatmap_10yr,
            nrow=2) + 
   plot_annotation(tag_levels="A",tag_suffix = ".")
 
-ggsave("Figures/MARcountries_mp_heatmap_10yr_perc.png",width=10,height=10)
+#ggsave("Figures/MARcountries_mp_heatmap_10yr_perc.png",width=10,height=10)
 ```
 
 ```{r}
@@ -1502,7 +1509,7 @@ wrap_plots(MARcountries_heatmap_10yr,
            gen_grob(MARmp_perc_long, fit = "width"),
            nrow=3) + plot_layout(heights=c(5,1,7))
 
-ggsave("Figures/MARcountries_mp_table_10yr_perc.png",width=10,height=10)
+#ggsave("Figures/MARcountries_mp_table_10yr_perc.png",width=10,height=10)
 ```
 
 # Session Info  
