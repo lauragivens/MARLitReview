@@ -492,11 +492,21 @@ hm.subset <- geo.df.regionFocus %>%
                                   
                                   "Management", "Policy", "Protected Areas"
                                   )) %>% 
-  mutate(Topic_categories=factor(Topic_categories,levels=c("Mangrove","Seagrass","Coral Reefs",
-                                                           "Fish and Fisheries", "Charismatic Species",
-                                                           "Policy",
-                                                           "Management type",
-                                                           "Community-based"), ordered=TRUE))
+  mutate(Topic_categories=case_when(Topic_categories=="Mangrove" ~ "Ecosystems",
+                                    Topic_categories=="Seagrass" ~ "Ecosystems",
+                                    Topic_categories=="Coral Reefs" ~ "Ecosystems",
+                                    Topic_categories=="Fish and Fisheries" ~ "Species",
+                                    Topic_categories=="Charismatic Species" ~ "Species",
+                                    Topic_all=="Threats" ~ "Threats",
+                                    Topic_categories=="Management type" & Topic_all !="Threats" ~ "Management Approaches",
+                                    Topic_categories=="Policy" & Topic_all !="Threats" ~ "Management Approaches",
+                                    Topic_categories=="Community-based" ~ "Engagement",
+                                    .default=Topic_categories) ) %>% 
+  ungroup() %>% mutate(Topic_categories=factor(Topic_categories,levels=c("Ecosystems","Species",
+                                                                         "Threats","Management Approaches",
+                                                                         "Engagement"),ordered=TRUE)) %>%
+  arrange(Topic_categories,Topic_all) %>% 
+  mutate(Topic_all=factor(Topic_all,levels=(unique(Topic_all)%>%rev()),ordered=TRUE))
 ```
 
 ```{r geodfcountry,eval=FALSE}
@@ -931,8 +941,8 @@ mutate(nval=n())  %>%
   
   mutate(name=gsub("Mention_","",name),
          name=gsub("Mentioned_","",name)) %>% 
-  
-  filter(name!="Threat" & name!="CharismaticSpp" & name != "ScientistEngagement") %>%
+  #filter(name!="Threat" & name!="CharismaticSpp" & name != "AlternativeLivelihood") %>%
+  #filter(name!="Threat" & name!="CharismaticSpp" & name != "ScientistEngagement") %>%
   rename("Topic_all"="name",
          "Topic_all_num"="value") %>% 
   
@@ -941,37 +951,48 @@ mutate(nval=n())  %>%
                                  Topic_all=="CommunityEngagement" ~ "Community Engagement",
                                  Topic_all=="FisheriesSpp" ~ "Fish and Fisheries",
                                  Topic_all=="LocalKnowledge" ~ "Traditional Knowledge",
-                                 Topic_all=="AlternativeLivelihood" ~ "Alternative Livelihoods",
+                                 Topic_all=="ScientistEngagement" ~ "Scientist Engagement",
+                                 Topic_all=="CharismaticSpp" ~ "Charismatic Species",
+                                 #Topic_all=="AlternativeLivelihood" ~ "Alternative Livelihoods",
                                  str_detect(Topic_all,"oral")  ~ "Coral Reefs",
          .default=Topic_all),
-         Topic_categories = case_when(Topic_all=="Resilience" ~ "Management type",
-                                      Topic_all=="Adaptive Management" ~ "Management type",
-                                      Topic_all=="Seascape" ~ "Management type",
-                                      Topic_all=="Ridge to Reef" ~ "Management type",
+         Topic_categories = case_when(Topic_all=="Mangrove" ~ "Ecosystems",
+                                      Topic_all=="Coral Reefs" ~ "Ecosystems",
+                                      Topic_all=="Seagrass" ~ "Ecosystems",
+                                      Topic_all=="Other Ecosystems" ~ "Ecosystems",
+                                      Topic_all=="Geophysical" ~ "Ecosystems",
                                       
-                                      Topic_all=="Mangrove" ~ "Thematic focus",
-                                      Topic_all=="Coral Reefs" ~ "Thematic focus",
-                                      Topic_all=="Seagrass" ~ "Thematic focus",
-                                      Topic_all=="Other Ecosystems" ~ "Thematic focus",
-                                      Topic_all=="Geophysical" ~ "Thematic focus",
-                                      Topic_all=="Fish and Fisheries" ~ "Thematic focus",
+                                      Topic_all=="Fish and Fisheries" ~ "Species",
+                                      str_detect(Topic_all,"harismatic") ~ "Species",
                                       
-                                      str_detect(Topic_all,"ender") ~ "Community-based",
-                                      str_detect(Topic_all,"ngage") ~ "Community-based",
-                                      str_detect(Topic_all,"nowledge") ~ "Community-based",
-                                      str_detect(Topic_all,"oluntourism") ~ "Community-based",
-                                      str_detect(Topic_all,"iveli") ~ "Community-based",
-                                      str_detect(Topic_all,"takeholder") ~ "Community-based",
+                                      str_detect(Topic_all,"hreats") ~ "Threats",
+                                      
+                                      str_detect(Topic_all,"esilience") ~ "Management Approaches",
+                                      str_detect(Topic_all,"anagement") ~ "Management Approaches",
+                                      Topic_all=="Seascape" ~ "Management Approaches",
+                                      Topic_all=="Ridge to Reef" ~ "Management Approaches",
+                                      
+                                      str_detect(Topic_all,"ngagement") ~ "Engagement",
+                                      
+                                      str_detect(Topic_all,"ender") ~ "Engagement",
+                                      str_detect(Topic_all,"ngage") ~ "Engagement",
+                                      str_detect(Topic_all,"nowledge") ~ "Engagement",
+                                      str_detect(Topic_all,"oluntourism") ~ "Engagement",
+                                      str_detect(Topic_all,"iveli") ~ "Engagement",
+                                      str_detect(Topic_all,"takeholder") ~ "Engagement",
                                     
-                                      .default="Major topics")
-         ) %>% select(-nval) %>% rename("GeographicFocus"="Country")
-```
-```{r mpcompdf}
-comparison.df <- bind_rows(geo.df3,mp.df,.id="id") %>% 
-  mutate(id=case_when(id==1 ~ "Papers",.default="Management Plans"))
+                                      .default=NA)
+         ) %>% select(-nval) %>% rename("GeographicFocus"="Country") %>%
+  ungroup() %>% mutate(Topic_categories=factor(Topic_categories,levels=c("Ecosystems","Species",
+                                                                         "Threats","Management Approaches",
+                                                                         "Engagement"),ordered=TRUE)) %>%
+  arrange(Topic_categories,Topic_all) %>% 
+  mutate(Topic_all=factor(Topic_all,
+                          levels=(unique(Topic_all) %>%rev() ),
+                          ordered=TRUE))
 ```
 ```{r}
-mp.df <-  marmp %>% 
+mp.df <- marmp %>% 
   filter(Earliest_or_Latest_ManagementPlan!="Earliest" & !is.na(Earliest_or_Latest_ManagementPlan) & Earliest_or_Latest_ManagementPlan != "Not Available") %>%
   select(c(Country,
            Year_ManagementPlan,
@@ -986,7 +1007,10 @@ mutate(nval=n())  %>%
   mutate("Integrated Management" = c_across(any_of(c(contains("Seascape"),
                                                    contains("Ridge")))) %>% sum(.)
          ) %>% 
-  select(-c(contains("Seascape"),contains("Ridge"),contains("Scientist"),contains("Scale"))) %>%
+  select(-c(contains("Seascape"),contains("Ridge"),
+            #contains("Scientist"),
+            contains("Scale")
+            )) %>%
  # mutate(across(-c("Country","nval","Year_ManagementPlan"), ~./nval )) %>%
   pivot_longer(cols=-c(nval,Country,Year_ManagementPlan)) %>%
   
@@ -1045,7 +1069,16 @@ mutate(nval=n())  %>%
                                 ordered=TRUE),
          Topic_categories=factor(Topic_categories,
                                  levels=c("Community-based","Management type","Policy","Geophysical","Fish and Fisheries","Charismatic Species","Mangrove","Coral Reefs","Seagrass","Other Ecosystems"))
-  ) %>% rename("year"="Year_ManagementPlan")
+  ) %>% 
+  rename("year"="Year_ManagementPlan") %>%
+  mutate(year=as.integer(year)) %>% ungroup() %>%
+  arrange(Topic_categories,Topic_all) %>% 
+  mutate(Topic_all=factor(Topic_all,levels=(unique(Topic_all)),ordered=TRUE))
+```
+
+```{r mpcompdf}
+comparison.df <- bind_rows(geo.df3,mp.df,.id="id") %>% 
+  mutate(id=case_when(id==1 ~ "Papers",.default="Management Plans"))
 ```
 
 # Analysis  
@@ -1428,7 +1461,8 @@ subs.country.authors.dotplot <- year.countries.df %>% group_by(year,value) %>% s
 
 subs.country.authors.dotplot
 
-#ggsave("Figures/t15_AuthorsByYear_dotplot.png",subs.country.authors.dotplot,width=20,height=15,bg="white")
+ggsave("Figures/t15_AuthorsByYear_dotplot.png",subs.country.authors.dotplot,
+       width=10,height=6,bg="white")
 ```
 
 ## PubFig: Country authorship over time   
@@ -1791,7 +1825,8 @@ wrap_plots(country.ecosystem.plot2,
 
 ## PubFig: Heatmap MP comp
 ```{r marfocushm}  
-MARcountries_heatmap <-  hm.subset %>%
+#MARcountries_heatmap <- 
+MARcountries_hm_df <- hm.subset %>%
   mutate(yearBin=case_when((year>1990 & year<1996) ~ 2,
                            (year>=1996 & year<2001) ~ 3,
                            (year>=2001 & year<2006) ~ 4,
@@ -1815,12 +1850,11 @@ MARcountries_heatmap <-  hm.subset %>%
            #Topic_categories,
            GeographicFocus,
            fill=list(n=0,Topic_catBin=0,Topic_all_num=0)) %>%
-  arrange(Topic_categories) %>%
-  #complete(yearBin,Topic_all,GeographicFocus,
-  #         fill=list(n=0,Topic_allBin=0,Topic_all_num=0)) %>%
-  #filter(yearBin < 8) %>% 
-    #ggplot(., aes(x=yearBin,y=Topic_categories,fill=Topic_catBin)) + 
-  #ggplot(., aes(x=yearBin,y=Topic_all,fill=Topic_all_num)) + 
+  arrange(Topic_categories)  
+
+
+
+MARcountries_heatmap <-  MARcountries_hm_df %>%
   ggplot(., aes(x=yearBin,y=Topic_all,fill=Topic_catBin)) + 
   geom_tile(group="Topic_categories",position="identity") +
 facet_wrap(~GeographicFocus,nrow=1) +
@@ -1837,7 +1871,7 @@ MARcountries_heatmap
 ```
 
 ```{r}
-MARmp_heatmap <- mp.df %>%
+MARmp_hm_df <- mp.df %>%
   mutate(yearBin=case_when((year>1990 & year<1996) ~ 2,
                            (year>=1996 & year<2001) ~ 3,
                            (year>=2001 & year<2006) ~ 4,
@@ -1862,7 +1896,11 @@ MARmp_heatmap <- mp.df %>%
            Country,
   #         fill=list(n=0,Topic_catBin=0,Topic_all_num=0)
   ) %>%
-  arrange(Topic_categories) %>%
+  arrange(Topic_categories) 
+
+
+#MARmp_heatmap <- 
+  MARmp_hm_df %>%
   #complete(yearBin,Topic_all,GeographicFocus,
   #         fill=list(n=0,Topic_allBin=0,Topic_all_num=0)) %>%
   #filter(yearBin < 8) %>% 
