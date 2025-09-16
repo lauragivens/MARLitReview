@@ -209,7 +209,7 @@ sum(year.countries.df$total_firstauth,na.rm=TRUE)
 nrow(spdsht)
 nrow(rel.spdsht)
 ```
-454 papers -> 317 papers  
+454 papers -> 307 papers  
 
 _Regional focus_  
 ```{r ecodf}
@@ -236,6 +236,25 @@ eco.df <- author.countries.df %>%
 ```
 
 _Ecosystem focus_  
+```{r}
+eco.df %>% 
+  select(c(starts_with("Focus"),
+           GeoFocus,`Focus on Mangrove`,`Focus on Coral`,`Focus on Seagrass`,`Focus on  fish/fisheries`) #keep the ecosystem topics 
+         ) %>%
+  select(-c(starts_with("FocusGeo"))) %>%
+  mutate(across(everything(),~case_when(str_detect(.,"Unsure") ~ NA,
+                         str_detect(.,"No") ~ NA,
+                         str_detect(.,"N/A") ~ NA,
+                         str_detect(.,"ecommendati") ~ NA, #may need to change this depending on whether we want to consider this a yes or no
+                         str_detect(.,"focus") ~ "Yes",
+                         str_detect(.,"only") ~ NA,
+                         str_detect(.,"fish") ~ "Yes",
+                         str_detect(.,"ention") ~ "Yes",
+                         .default=.))) %>% 
+  mutate(across(everything(), ~ case_when(str_detect(.,"Yes") ~ 1, .default=0))) %>% 
+  colSums()
+```
+
 ```{r geodf}
 geo.df <- eco.df %>% 
   select(c(year,starts_with("countr"), #keep all the country affiliations of the authors  
@@ -267,24 +286,17 @@ geo.df <- eco.df %>%
     
   rename("Focus"="name", 
          "FocusY"="value") %>%
-  
 
   pivot_longer(cols=c(starts_with("countr")),
                values_drop_na = TRUE) %>% #collapse all of the countries into one column  
-  #filter(!is.na(value) & !is.na(FocusY)) %>% 
   mutate(value=str_trim(value,side="both")) %>% 
   filter(!is.na(FocusY)) %>%
    group_by(year,value,Focus) %>% 
 mutate(focus_peryear=n())  %>% 
-  #group_by(year,value,name) %>% 
-  #ungroup() %>%
-  #group_by(year,value,Focus) %>% 
-  #mutate(focus_peryear = n()) %>%
   select(-c(name,FocusY)) %>%
   distinct() %>% 
   ungroup() %>% group_by(value) %>% 
   mutate(n=n()) %>% #sum the total number of times a country appears in the list
-  #filter(n>1) %>%
   arrange(n) %>% 
   mutate(value=factor(value,levels=unique(.$value),ordered=TRUE)) 
 ```
@@ -855,7 +867,7 @@ oa.df %>% filter(rownames(.)>2014) %>% .$perc %>% mean()
 arrange(oa.df,desc(perc))[1:10,]
 ```
 
-### Analysis: Ecosystem    
+### Analysis: Focus    
  
 Percentage of papers focused on each ecosystem - is there a bias?  
 ```{r}
@@ -1363,6 +1375,40 @@ MARmp_heatmap_10yr_perc
 #ggsave("Figures/MARmp_heatmap_10yr_perc.png",MARmp_heatmap_10yr_perc,width=15,height=7)
 ```
 ```{r}
+MARmp_hm_df_perc <- 
+  mp.df %>% 
+  #mutate(yearBin=case_when((year>1990 & year<2001) ~ 2,
+  #                         (year>=2001 & year<2011) ~ 3,
+  #                         (year>=2011 & year<2021) ~ 4,
+  #                         (year>=2021) ~ 5,
+  #                         .default=1)
+  #       ) %>% 
+  group_by(Country,#yearBin,
+           Topic_categories,Topic_all) %>%
+  summarize(N=sum(nval),
+            n=sum(Topic_all_num)) %>% 
+  mutate(perc=n/N) %>%
+  #mutate(yearBin=factor(yearBin,levels=c(1,2,3,4,5),ordered=TRUE)
+  #       ) %>%
+  distinct() %>% ungroup() %>% 
+  complete(#yearBin,
+           Topic_all,
+           Country,
+  #         fill=list(n=0,Topic_catBin=0,Topic_all_num=0)
+  ) %>%
+  arrange(Topic_categories) %>% 
+  select(-c(Topic_categories,N,n)) %>% 
+  pivot_wider(names_from = c(Country), #output columns
+            names_sep="_",
+            names_sort=TRUE,
+              values_from = perc #cell values
+              ) %>% 
+  mutate(across(where(is.double),~round(.,digits=2))) %>%
+  complete(Topic_all) %>% arrange(rev(Topic_all))
+
+```
+
+```{r}
 MARmp_perc_long <- MARmp_hm_df_10yr_perc %>%
   select(-c(Topic_categories,N,n)) %>% 
   pivot_wider(names_from = c(Country,yearBin), #output columns
@@ -1413,6 +1459,24 @@ MARmp_perc_wide <- MARmp_hm_df_10yr_perc %>%
 
 MARmp_perc_wide
 ```
+```{r}
+MARmp_perc <- MARmp_hm_df_perc %>% 
+  flextable::flextable(.) %>% 
+  flextable::set_header_labels(values=c("Topic",
+                               "Mexico","Belize","Guatemala","Honduras"
+                               )) %>%
+  #add_header_row(colwidths = c(1,4,4,4,4),values=c("","Mexico","Belize","Guatemala","Honduras")) %>%
+  set_caption("Percentage of most recent management plans addressing topic categories in 10-year increments.") %>%
+  flextable::set_table_properties(layout="autofit") %>% 
+  flextable::theme_zebra() %>%
+  align(.,align="center",part="all") %>%
+  flextable::fontsize(size=12,part="all") %>%
+  hline(i=c(3,5,6,9)) %>%
+  #vline(j=c(1,5,9,13)) %>%
+  bold(j=1)# %>% 
+ # flextable::italic(j=7)
+MARmp_perc
+```
 
 ```{r}
 wrap_plots(MARcountries_heatmap_10yr,
@@ -1426,13 +1490,54 @@ wrap_plots(MARcountries_heatmap_10yr,
 ```{r}
 wrap_plots(MARcountries_heatmap_10yr,
            plot_spacer(),
-           gen_grob(MARmp_perc_long, fit = "width"),
+           gen_grob(MARmp_perc, fit = "width", #fit = "fixed",
+                    wrapping=FALSE,just = "center"),
+           #gen_grob(MARmp_perc_long, fit = "width"),
            nrow=3) + plot_layout(heights=c(5,1,7))
 
-#ggsave("Figures/MARcountries_mp_table_10yr_perc.png",width=10,height=10)
+ggsave("Figures/MARcountries_mp_table_perc.png",width=10,height=10)
 ```
 
-# 7. Summary  
+# 7. Tables  
+```{r t7b}
+write.csv(MARmp_hm_df_perc,"Figures/7b.RegionalNuanceinManagementPlans.csv")
+```
+
+```{r s1}
+#geo.df %>%
+#group_by(value,Focus) %>% 
+geo.df.regionFocus %>% 
+  group_by(Topic_all,GeographicFocus) %>%
+    summarize(n=sum(Topic_all_num)) %>% 
+    pivot_wider(names_from=Topic_all,values_from=n,values_fill=0) %>% 
+    #filter(value%in%top15) %>%
+    column_to_rownames(.,"GeographicFocus") %>% 
+   # mutate(Total=rowSums(.,na.rm=TRUE)) %>% #filter(Total>1) %>%
+    rownames_to_column("Country") %>%
+    #arrange(desc(Total)) %>% 
+   # bind_rows(summarise(.,across(where(is.numeric),sum),
+    #                    across(where(is.character),~"Total"))) 
+write.csv(.,"Figures/ST1.TopicalFocusbyGeography.csv")
+```
+
+```{r s2}
+#geo.df %>%
+#group_by(value,Focus) %>% 
+geo.df.countryFocus %>% 
+  group_by(Topic_all,Country) %>%
+    summarize(n=sum(Topic_all_num)) %>% 
+    pivot_wider(names_from=Topic_all,values_from=n,values_fill=0) %>% 
+    filter(Country%in%top15) %>%
+    column_to_rownames(.,"Country") %>% 
+   # mutate(Total=rowSums(.,na.rm=TRUE)) %>% #filter(Total>1) %>%
+    rownames_to_column("Country") %>%
+    #arrange(desc(Total)) %>% 
+   # bind_rows(summarise(.,across(where(is.numeric),sum),
+    #                    across(where(is.character),~"Total"))) 
+write.csv(.,"Figures/ST2.PublishingTopicbyCountry.csv")
+```
+
+# 8. Summary  
 How many countries have been involved in scientific articles regarding the MAR?    
 ```{r}
 length(all.countries[!is.na(all.countries)])
